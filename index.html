@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14130f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Seedream Studio</title>
+<script>
+  // Real service worker registration — required by Android/Chrome to offer
+  // a full "Install app" (no address bar), rather than a plain shortcut.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function (err) {
+        console.warn("Service worker registration failed:", err);
+      });
+    });
+  }
+</script>
+<style>
+  :root {
+    --bg: #14130f;
+    --panel: #1d1b16;
+    --panel-2: #262319;
+    --border: #35311f;
+    --text: #f2ede1;
+    --text-dim: #a89f88;
+    --accent: #4c7cff;
+    --accent-dim: #2c3e7a;
+    --ok: #59c88f;
+    --err: #e2574c;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 24px) 16px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  header {
+    padding: 28px 4px 18px 4px;
+  }
+  header .mark {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-size: 26px;
+    font-weight: 650;
+    margin: 0;
+    line-height: 1.15;
+  }
+  header p {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 8px 0 0 0;
+    line-height: 1.5;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  section h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin: 0 0 12px 0;
+  }
+  label.field-label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 12px 0 6px 0;
+  }
+  label.field-label:first-child { margin-top: 0; }
+  input[type="text"], input[type="password"], input[type="url"], textarea, select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 11px 12px;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+  }
+  textarea {
+    resize: vertical;
+    min-height: 74px;
+    line-height: 1.4;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+  }
+  .row > div { flex: 1; min-width: 0; }
+  .key-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .key-row input { flex: 1; }
+  .icon-btn {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 10px;
+    padding: 11px 13px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .saved-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .dot.off { background: #55503f; }
+
+  /* saved prompts */
+  .prompt-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .prompt-chips:empty { display: none; }
+  .chip {
+    display: flex;
+    align-items: center;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 8px 6px 14px;
+    font-size: 13px;
+    gap: 6px;
+    max-width: 100%;
+  }
+  .chip button.use {
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip button.del {
+    background: var(--panel);
+    border: none;
+    color: var(--text-dim);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .save-prompt-row {
+    display: flex;
+    gap: 8px;
+  }
+  .save-prompt-row input { flex: 1; }
+  .save-prompt-row button {
+    background: var(--accent-dim);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .empty-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  select { appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23a89f88'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 30px;
+  }
+
+  .generate-btn {
+    width: 100%;
+    background: var(--accent);
+    color: #0d1220;
+    border: none;
+    border-radius: 12px;
+    padding: 15px;
+    font-size: 16px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .generate-btn:disabled {
+    opacity: 0.5;
+  }
+  .generate-btn.working {
+    background: var(--accent-dim);
+    color: var(--text-dim);
+  }
+
+  #status {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 10px;
+    min-height: 16px;
+    line-height: 1.5;
+  }
+  #status.err { color: var(--err); }
+  #status.ok { color: var(--ok); }
+
+  .image-source { margin-bottom: 4px; }
+  .pick-btn {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px dashed var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  #imagePreview {
+    width: 100%;
+    max-height: 220px;
+    object-fit: contain;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-top: 10px;
+    display: none;
+    background: #0e0d0a;
+  }
+  .upload-status {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    min-height: 14px;
+  }
+  .upload-status.err { color: var(--err); }
+  .upload-status.ok { color: var(--ok); }
+
+  #resultWrap { margin-top: 14px; display: none; }
+  #resultImg {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+  .result-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .result-actions a, .result-actions button {
+    flex: 1;
+    text-align: center;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  footer {
+    text-align: center;
+    color: #55503f;
+    font-size: 11px;
+    padding: 10px 0 6px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="mark">Générateur perso</div>
+  <h1>Seedream Studio</h1>
+  <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
+</header>
+
+<section>
+  <h2>Clé API</h2>
+  <div class="key-row">
+    <input type="password" id="apiKey" placeholder="sk-...">
+    <button class="icon-btn" id="toggleKey">Voir</button>
+  </div>
+  <div class="saved-note">
+    <span class="dot off" id="keyDot"></span>
+    <span id="keyStatus">Non enregistrée sur cet appareil</span>
+  </div>
+  <label class="field-label" style="margin-top:10px;">
+    <input type="checkbox" id="rememberKey" style="width:auto; margin-right:6px;">
+    Se souvenir de la clé sur ce téléphone
+  </label>
+</section>
+
+<section>
+  <h2>Prompts sauvegardés</h2>
+  <div class="prompt-chips" id="promptChips"></div>
+  <div class="empty-hint" id="emptyHint">Aucun prompt sauvegardé pour l'instant.</div>
+  <div class="save-prompt-row">
+    <input type="text" id="promptName" placeholder="Nom du prompt à sauvegarder">
+    <button id="savePromptBtn">Sauver</button>
+  </div>
+</section>
+
+<section>
+  <h2>Génération</h2>
+
+  <label class="field-label">Image source</label>
+  <div class="image-source">
+    <button type="button" class="pick-btn" id="pickImageBtn">📷 Choisir une photo</button>
+    <input type="file" id="imageFile" accept="image/png, image/jpeg, image/webp" style="display:none;">
+    <img id="imagePreview" style="display:none;">
+    <div id="uploadStatus" class="upload-status"></div>
+  </div>
+  <label class="field-label">…ou colle une URL d'image existante</label>
+  <input type="url" id="imageUrl" placeholder="https://...">
+
+  <label class="field-label">Prompt</label>
+  <textarea id="prompt" placeholder='Ex : change text "Lite" into "Pro"'></textarea>
+
+  <div class="row">
+    <div>
+      <label class="field-label">Format</label>
+      <select id="aspectRatio">
+        <option value="1:1">1:1</option>
+        <option value="4:3">4:3</option>
+        <option value="3:4">3:4</option>
+        <option value="16:9">16:9</option>
+        <option value="9:16">9:16</option>
+        <option value="2:3">2:3</option>
+        <option value="3:2">3:2</option>
+        <option value="21:9">21:9</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Qualité</label>
+      <select id="quality">
+        <option value="basic">Basic (1K)</option>
+        <option value="high">High (2K)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label class="field-label">Sortie</label>
+      <select id="outputFormat">
+        <option value="png">PNG</option>
+        <option value="jpeg">JPEG</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Filtre NSFW</label>
+      <select id="nsfwChecker">
+        <option value="true">Activé</option>
+        <option value="false">Désactivé</option>
+      </select>
+    </div>
+  </div>
+
+  <button class="generate-btn" id="generateBtn">Générer</button>
+  <div id="status"></div>
+
+  <div id="resultWrap">
+    <img id="resultImg" alt="Résultat">
+    <div class="result-actions">
+      <a id="downloadLink" href="#" download="seedream-result.png">Télécharger</a>
+      <button id="copyUrlBtn">Copier l'URL</button>
+    </div>
+  </div>
+</section>
+
+<footer>Fichier local — usage personnel uniquement</footer>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const STORAGE_PROMPTS = "seedream_saved_prompts";
+  const STORAGE_KEY = "seedream_api_key";
+
+  // ---------- API key ----------
+  function loadKey() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      $("apiKey").value = saved;
+      $("rememberKey").checked = true;
+      $("keyDot").classList.remove("off");
+      $("keyStatus").textContent = "Clé enregistrée sur cet appareil";
+    }
+  }
+  $("apiKey").addEventListener("input", () => {
+    if ($("rememberKey").checked) persistKey();
+  });
+  $("rememberKey").addEventListener("change", () => {
+    if ($("rememberKey").checked) {
+      persistKey();
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+      $("keyDot").classList.add("off");
+      $("keyStatus").textContent = "Non enregistrée sur cet appareil";
+    }
+  });
+  function persistKey() {
+    const v = $("apiKey").value.trim();
+    if (!v) return;
+    localStorage.setItem(STORAGE_KEY, v);
+    $("keyDot").classList.remove("off");
+    $("keyStatus").textContent = "Clé enregistrée sur cet appareil";
+  }
+  $("toggleKey").addEventListener("click", () => {
+    const f = $("apiKey");
+    const showing = f.type === "text";
+    f.type = showing ? "password" : "text";
+    $("toggleKey").textContent = showing ? "Voir" : "Cacher";
+  });
+
+  // ---------- Saved prompts ----------
+  function getPrompts() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_PROMPTS) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setPrompts(list) {
+    localStorage.setItem(STORAGE_PROMPTS, JSON.stringify(list));
+  }
+  function renderPrompts() {
+    const list = getPrompts();
+    const wrap = $("promptChips");
+    wrap.innerHTML = "";
+    $("emptyHint").style.display = list.length ? "none" : "block";
+    list.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const useBtn = document.createElement("button");
+      useBtn.className = "use";
+      useBtn.textContent = p.name;
+      useBtn.title = p.text;
+      useBtn.addEventListener("click", () => {
+        $("prompt").value = p.text;
+        $("prompt").focus();
+      });
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        const l = getPrompts();
+        l.splice(i, 1);
+        setPrompts(l);
+        renderPrompts();
+      });
+      chip.appendChild(useBtn);
+      chip.appendChild(delBtn);
+      wrap.appendChild(chip);
+    });
+  }
+  $("savePromptBtn").addEventListener("click", () => {
+    const name = $("promptName").value.trim();
+    const text = $("prompt").value.trim();
+    if (!name) { setStatus("Donne un nom au prompt avant de sauver.", "err"); return; }
+    if (!text) { setStatus("Le champ prompt est vide, rien à sauver.", "err"); return; }
+    const list = getPrompts();
+    list.push({ name, text });
+    setPrompts(list);
+    $("promptName").value = "";
+    renderPrompts();
+    setStatus("Prompt \"" + name + "\" sauvegardé.", "ok");
+  });
+
+  // ---------- Image upload (from phone) ----------
+  $("pickImageBtn").addEventListener("click", () => $("imageFile").click());
+
+  $("imageFile").addEventListener("change", async () => {
+    const file = $("imageFile").files[0];
+    if (!file) return;
+
+    const apiKey = $("apiKey").value.trim();
+    if (!apiKey) {
+      setUploadStatus("Entre ta clé API avant d'envoyer une photo.", "err");
+      $("imageFile").value = "";
+      return;
+    }
+
+    // preview immediately
+    const preview = $("imagePreview");
+    const reader = new FileReader();
+    reader.onload = async () => {
+      preview.src = reader.result;
+      preview.style.display = "block";
+
+      setUploadStatus("Envoi de la photo...");
+      try {
+        const base64Data = reader.result; // data URL, kie.ai accepts this format directly
+        const uploadRes = await fetch("https://api.kie.ai/api/v1/file-base64-upload", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+          },
+          body: JSON.stringify({
+            base64Data: base64Data,
+            uploadPath: "images/seedream-studio",
+            fileName: "upload-" + Date.now() + "." + (file.type.split("/")[1] || "png")
+          })
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok || uploadData.code !== 200 || !uploadData.data) {
+          throw new Error(uploadData.msg || "Échec de l'envoi de la photo");
+        }
+        $("imageUrl").value = uploadData.data.downloadUrl;
+        setUploadStatus("Photo envoyée et prête à l'emploi.", "ok");
+      } catch (err) {
+        setUploadStatus("Erreur d'envoi : " + err.message, "err");
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function setUploadStatus(msg, kind) {
+    const el = $("uploadStatus");
+    el.textContent = msg;
+    el.className = "upload-status" + (kind ? " " + kind : "");
+  }
+
+  // ---------- Generation ----------
+  function setStatus(msg, kind) {
+    const el = $("status");
+    el.textContent = msg;
+    el.className = kind || "";
+  }
+
+  async function pollTask(taskId, apiKey) {
+    const maxAttempts = 60; // ~2 min at 2s interval
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=" + encodeURIComponent(taskId), {
+        headers: { "Authorization": "Bearer " + apiKey }
+      });
+      const data = await res.json();
+      if (data.code !== 200) {
+        throw new Error(data.msg || "Erreur lors de la vérification du statut");
+      }
+      const state = data.data.state;
+      setStatus("Statut : " + state + " (tentative " + (i + 1) + ")");
+      if (state === "success") {
+        const result = JSON.parse(data.data.resultJson);
+        return result.resultUrls[0];
+      }
+      if (state === "fail") {
+        throw new Error(data.data.failMsg || "La génération a échoué");
+      }
+    }
+    throw new Error("Délai dépassé, la tâche prend plus de temps que prévu.");
+  }
+
+  $("generateBtn").addEventListener("click", async () => {
+    const apiKey = $("apiKey").value.trim();
+    const imageUrl = $("imageUrl").value.trim();
+    const prompt = $("prompt").value.trim();
+
+    if (!apiKey) { setStatus("Entre ta clé API.", "err"); return; }
+    if (!imageUrl) { setStatus("Entre l'URL de l'image source.", "err"); return; }
+    if (!prompt) { setStatus("Entre un prompt.", "err"); return; }
+
+    const btn = $("generateBtn");
+    btn.disabled = true;
+    btn.classList.add("working");
+    btn.textContent = "Génération...";
+    $("resultWrap").style.display = "none";
+    setStatus("Envoi de la tâche...");
+
+    const body = {
+      model: "seedream/5-pro-image-to-image",
+      input: {
+        prompt: prompt,
+        image_urls: [imageUrl],
+        aspect_ratio: $("aspectRatio").value,
+        quality: $("quality").value,
+        output_format: $("outputFormat").value,
+        nsfw_checker: $("nsfwChecker").value === "true"
+      }
+    };
+
+    try {
+      const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify(body)
+      });
+      const createData = await createRes.json();
+      if (createData.code !== 200) {
+        throw new Error(createData.msg || "Échec de la création de la tâche");
+      }
+      const taskId = createData.data.taskId;
+      setStatus("Tâche créée (" + taskId + "). En attente du résultat...");
+
+      const resultUrl = await pollTask(taskId, apiKey);
+
+      $("resultImg").src = resultUrl;
+      $("downloadLink").href = resultUrl;
+      $("resultWrap").style.display = "block";
+      setStatus("Terminé.", "ok");
+    } catch (err) {
+      setStatus("Erreur : " + err.message, "err");
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("working");
+      btn.textContent = "Générer";
+    }
+  });
+
+  $("copyUrlBtn").addEventListener("click", async () => {
+    const url = $("downloadLink").href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus("URL copiée.", "ok");
+    } catch (e) {
+      setStatus("Impossible de copier automatiquement, copie l'URL manuellement.", "err");
+    }
+  });
+
+  // init
+  loadKey();
+  renderPrompts();
+</script>
+
+</body>
+</html>
