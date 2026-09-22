@@ -506,6 +506,33 @@
   // ---------- Image upload (from phone) ----------
   $("pickImageBtn").addEventListener("click", () => $("imageFile").click());
 
+  function resizeImage(dataUrl, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+          else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("Impossible de lire l'image"));
+      img.src = dataUrl;
+    });
+  }
+
+  function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
   $("imageFile").addEventListener("change", async () => {
     const file = $("imageFile").files[0];
     if (!file) return;
@@ -524,29 +551,43 @@
       preview.src = reader.result;
       preview.style.display = "block";
 
-      setUploadStatus("Envoi de la photo...");
       try {
-        const base64Data = reader.result; // data URL, kie.ai accepts this format directly
-        const uploadRes = await fetch("https://api.kie.ai/api/v1/file-base64-upload", {
+        setUploadStatus("Compression de la photo...");
+        const compressed = await resizeImage(reader.result, 1600, 0.85);
+
+        setUploadStatus("Envoi de la photo...");
+        const uploadRes = await fetchWithTimeout("https://kieai.redpandaai.co/api/file-base64-upload", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": "Bearer " + apiKey
           },
           body: JSON.stringify({
-            base64Data: base64Data,
+            base64Data: compressed,
             uploadPath: "images/seedream-studio",
-            fileName: "upload-" + Date.now() + "." + (file.type.split("/")[1] || "png")
+            fileName: "upload-" + Date.now() + ".jpg"
           })
-        });
-        const uploadData = await uploadRes.json();
+        }, 25000);
+
+        const rawText = await uploadRes.text();
+        let uploadData;
+        try {
+          uploadData = JSON.parse(rawText);
+        } catch (parseErr) {
+          throw new Error("Réponse inattendue (HTTP " + uploadRes.status + ") : " + rawText.slice(0, 200));
+        }
         if (!uploadRes.ok || uploadData.code !== 200 || !uploadData.data) {
-          throw new Error(uploadData.msg || "Échec de l'envoi de la photo");
+          const detail = uploadData.msg || uploadData.message || ("HTTP " + uploadRes.status);
+          throw new Error(detail);
         }
         $("imageUrl").value = uploadData.data.downloadUrl;
         setUploadStatus("Photo envoyée et prête à l'emploi.", "ok");
       } catch (err) {
-        setUploadStatus("Erreur d'envoi : " + err.message, "err");
+        if (err.name === "AbortError") {
+          setUploadStatus("L'envoi a pris trop de temps (>25s) et a été annulé. Vérifie ta connexion ou réessaie.", "err");
+        } else {
+          setUploadStatus("Erreur d'envoi : " + err.message, "err");
+        }
       }
     };
     reader.readAsDataURL(file);
