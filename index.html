@@ -402,7 +402,7 @@
   <div class="image-source">
     <button type="button" class="pick-btn" id="pickImageBtn">📷 Choisir une photo</button>
     <input type="file" id="imageFile" accept="image/png, image/jpeg, image/webp" style="display:none;">
-    <img id="imagePreview" style="display:none;">
+    <img id="imagePreview" style="display:none;" referrerpolicy="no-referrer">
     <div id="uploadStatus" class="upload-status"></div>
   </div>
   <label class="field-label">…ou colle une URL d'image existante</label>
@@ -455,7 +455,7 @@
   <div id="status"></div>
 
   <div id="resultWrap">
-    <img id="resultImg" alt="Résultat">
+    <img id="resultImg" alt="Résultat" referrerpolicy="no-referrer">
     <div class="result-actions">
       <a id="downloadLink" href="#" download="seedream-result.png">Télécharger</a>
       <button id="copyUrlBtn">Copier l'URL</button>
@@ -610,7 +610,10 @@
 
       const thumb = document.createElement(entry.resultUrl ? "img" : "div");
       thumb.className = "history-thumb";
-      if (entry.resultUrl) thumb.src = entry.resultUrl;
+      if (entry.resultUrl) {
+        thumb.src = entry.resultUrl;
+        thumb.referrerPolicy = "no-referrer";
+      }
 
       const info = document.createElement("div");
       info.className = "history-info";
