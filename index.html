@@ -253,15 +253,56 @@
     font-size: 14px;
     font-weight: 600;
   }
-  #imagePreview {
-    width: 100%;
-    max-height: 220px;
-    object-fit: contain;
-    border-radius: 10px;
-    border: 1px solid var(--border);
+  .image-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 10px;
-    display: none;
+  }
+  .image-gallery:empty { margin-top: 0; }
+  .gallery-thumb-wrap {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+  }
+  .gallery-thumb-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
     background: #0e0d0a;
+    display: block;
+  }
+  .gallery-thumb-wrap button {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--err);
+    color: #fff;
+    border: 2px solid var(--bg);
+    font-size: 12px;
+    line-height: 1;
+    padding: 0;
+  }
+  .url-add-row {
+    display: flex;
+    gap: 8px;
+  }
+  .url-add-row input { flex: 1; }
+  .url-add-row button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
   }
   .upload-status {
     font-size: 12px;
@@ -398,15 +439,18 @@
 <section>
   <h2>Génération</h2>
 
-  <label class="field-label">Image source</label>
+  <label class="field-label">Images de référence (jusqu'à 10)</label>
   <div class="image-source">
-    <button type="button" class="pick-btn" id="pickImageBtn">📷 Choisir une photo</button>
-    <input type="file" id="imageFile" accept="*/*" style="display:none;">
-    <img id="imagePreview" style="display:none;" referrerpolicy="no-referrer">
+    <button type="button" class="pick-btn" id="pickImageBtn">📷 Ajouter une photo</button>
+    <input type="file" id="imageFile" accept="*/*" multiple style="display:none;">
+    <div id="imageGallery" class="image-gallery"></div>
     <div id="uploadStatus" class="upload-status"></div>
   </div>
   <label class="field-label">…ou colle une URL d'image existante</label>
-  <input type="url" id="imageUrl" placeholder="https://...">
+  <div class="url-add-row">
+    <input type="url" id="imageUrl" placeholder="https://...">
+    <button type="button" id="addUrlBtn">Ajouter</button>
+  </div>
 
   <label class="field-label">Prompt</label>
   <textarea id="prompt" placeholder='Ex : change text "Lite" into "Pro"'></textarea>
@@ -694,8 +738,44 @@
     getHistory().filter(e => e.status === "pending").forEach(e => checkHistoryEntry(e.taskId));
   }
 
-  // ---------- Image upload (from phone) ----------
+  // ---------- Image upload (from phone) — multi-image gallery ----------
+  let referenceImages = []; // array of image URLs used as image_urls
+  const MAX_REFERENCE_IMAGES = 10;
+
   $("pickImageBtn").addEventListener("click", () => $("imageFile").click());
+
+  function renderGallery() {
+    const wrap = $("imageGallery");
+    wrap.innerHTML = "";
+    referenceImages.forEach((url, i) => {
+      const item = document.createElement("div");
+      item.className = "gallery-thumb-wrap";
+      const img = document.createElement("img");
+      img.src = url;
+      img.referrerPolicy = "no-referrer";
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        referenceImages.splice(i, 1);
+        renderGallery();
+      });
+      item.appendChild(img);
+      item.appendChild(removeBtn);
+      wrap.appendChild(item);
+    });
+  }
+
+  $("addUrlBtn").addEventListener("click", () => {
+    const url = $("imageUrl").value.trim();
+    if (!url) return;
+    if (referenceImages.length >= MAX_REFERENCE_IMAGES) {
+      setUploadStatus("Maximum " + MAX_REFERENCE_IMAGES + " images de référence.", "err");
+      return;
+    }
+    referenceImages.push(url);
+    $("imageUrl").value = "";
+    renderGallery();
+  });
 
   function resizeImage(dataUrl, maxDim, quality) {
     return new Promise((resolve, reject) => {
@@ -724,15 +804,47 @@
     return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
   }
 
-  $("imageFile").addEventListener("change", async () => {
-    const file = $("imageFile").files[0];
-    if (!file) return;
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Impossible de lire le fichier"));
+      reader.readAsDataURL(file);
+    });
+  }
 
-    if (!file.type.startsWith("image/")) {
-      setUploadStatus("Ce fichier n'est pas une image. Choisis une photo (jpg, png, webp...).", "err");
-      $("imageFile").value = "";
-      return;
+  async function uploadOneFile(file, apiKey) {
+    const dataUrl = await readFileAsDataUrl(file);
+    const compressed = await resizeImage(dataUrl, 1600, 0.85);
+    const uploadRes = await fetchWithTimeout("https://kieai.redpandaai.co/api/file-base64-upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey
+      },
+      body: JSON.stringify({
+        base64Data: compressed,
+        uploadPath: "images/seedream-studio",
+        fileName: "upload-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7) + ".jpg"
+      })
+    }, 25000);
+
+    const rawText = await uploadRes.text();
+    let uploadData;
+    try {
+      uploadData = JSON.parse(rawText);
+    } catch (parseErr) {
+      throw new Error("Réponse inattendue (HTTP " + uploadRes.status + ") : " + rawText.slice(0, 200));
     }
+    if (!uploadRes.ok || uploadData.code !== 200 || !uploadData.data) {
+      throw new Error(uploadData.msg || uploadData.message || ("HTTP " + uploadRes.status));
+    }
+    return uploadData.data.downloadUrl;
+  }
+
+  $("imageFile").addEventListener("change", async () => {
+    const files = Array.from($("imageFile").files || []);
+    if (!files.length) return;
 
     const apiKey = $("apiKey").value.trim();
     if (!apiKey) {
@@ -741,53 +853,38 @@
       return;
     }
 
-    // preview immediately
-    const preview = $("imagePreview");
-    const reader = new FileReader();
-    reader.onload = async () => {
-      preview.src = reader.result;
-      preview.style.display = "block";
+    const room = MAX_REFERENCE_IMAGES - referenceImages.length;
+    if (room <= 0) {
+      setUploadStatus("Maximum " + MAX_REFERENCE_IMAGES + " images de référence.", "err");
+      $("imageFile").value = "";
+      return;
+    }
+    const toUpload = files.slice(0, room);
 
+    let uploaded = 0;
+    for (const file of toUpload) {
+      if (!file.type.startsWith("image/")) {
+        setUploadStatus("Un fichier ignoré (pas une image) : " + file.name, "err");
+        continue;
+      }
       try {
-        setUploadStatus("Compression de la photo...");
-        const compressed = await resizeImage(reader.result, 1600, 0.85);
-
-        setUploadStatus("Envoi de la photo...");
-        const uploadRes = await fetchWithTimeout("https://kieai.redpandaai.co/api/file-base64-upload", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + apiKey
-          },
-          body: JSON.stringify({
-            base64Data: compressed,
-            uploadPath: "images/seedream-studio",
-            fileName: "upload-" + Date.now() + ".jpg"
-          })
-        }, 25000);
-
-        const rawText = await uploadRes.text();
-        let uploadData;
-        try {
-          uploadData = JSON.parse(rawText);
-        } catch (parseErr) {
-          throw new Error("Réponse inattendue (HTTP " + uploadRes.status + ") : " + rawText.slice(0, 200));
-        }
-        if (!uploadRes.ok || uploadData.code !== 200 || !uploadData.data) {
-          const detail = uploadData.msg || uploadData.message || ("HTTP " + uploadRes.status);
-          throw new Error(detail);
-        }
-        $("imageUrl").value = uploadData.data.downloadUrl;
-        setUploadStatus("Photo envoyée et prête à l'emploi.", "ok");
+        setUploadStatus("Envoi " + (uploaded + 1) + "/" + toUpload.length + "...");
+        const url = await uploadOneFile(file, apiKey);
+        referenceImages.push(url);
+        renderGallery();
+        uploaded++;
       } catch (err) {
         if (err.name === "AbortError") {
-          setUploadStatus("L'envoi a pris trop de temps (>25s) et a été annulé. Vérifie ta connexion ou réessaie.", "err");
+          setUploadStatus("L'envoi de \"" + file.name + "\" a pris trop de temps et a été annulé.", "err");
         } else {
-          setUploadStatus("Erreur d'envoi : " + err.message, "err");
+          setUploadStatus("Erreur d'envoi (\"" + file.name + "\") : " + err.message, "err");
         }
       }
-    };
-    reader.readAsDataURL(file);
+    }
+    if (uploaded > 0) {
+      setUploadStatus(uploaded + " photo(s) envoyée(s) et prête(s) à l'emploi.", "ok");
+    }
+    $("imageFile").value = "";
   });
 
   function setUploadStatus(msg, kind) {
@@ -805,12 +902,27 @@
 
   async function pollTask(taskId, apiKey) {
     const maxAttempts = 60; // ~2 min at 2s interval
+    let consecutiveNetworkErrors = 0;
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
-      const res = await fetch("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=" + encodeURIComponent(taskId), {
-        headers: { "Authorization": "Bearer " + apiKey }
-      });
-      const data = await res.json();
+      let data;
+      try {
+        const res = await fetch("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=" + encodeURIComponent(taskId), {
+          headers: { "Authorization": "Bearer " + apiKey }
+        });
+        data = await res.json();
+        consecutiveNetworkErrors = 0;
+      } catch (networkErr) {
+        // Likely the app was backgrounded and the connection got cut.
+        // Don't give up immediately — the generation is still running
+        // server-side. Just retry on the next tick.
+        consecutiveNetworkErrors++;
+        setStatus("Connexion interrompue (l'app est peut-être en arrière-plan), nouvelle tentative...", "err");
+        if (consecutiveNetworkErrors >= 10) {
+          throw new Error("NETWORK_LOST");
+        }
+        continue;
+      }
       if (data.code !== 200) {
         throw new Error(data.msg || "Erreur lors de la vérification du statut");
       }
@@ -829,11 +941,10 @@
 
   $("generateBtn").addEventListener("click", async () => {
     const apiKey = $("apiKey").value.trim();
-    const imageUrl = $("imageUrl").value.trim();
     const prompt = $("prompt").value.trim();
 
     if (!apiKey) { setStatus("Entre ta clé API.", "err"); return; }
-    if (!imageUrl) { setStatus("Entre l'URL de l'image source.", "err"); return; }
+    if (referenceImages.length === 0) { setStatus("Ajoute au moins une image de référence.", "err"); return; }
     if (!prompt) { setStatus("Entre un prompt.", "err"); return; }
 
     const btn = $("generateBtn");
@@ -847,7 +958,7 @@
       model: "seedream/5-pro-image-to-image",
       input: {
         prompt: prompt,
-        image_urls: [imageUrl],
+        image_urls: referenceImages,
         aspect_ratio: $("aspectRatio").value,
         quality: $("quality").value,
         output_format: $("outputFormat").value,
@@ -888,8 +999,14 @@
       setStatus("Terminé.", "ok");
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
     } catch (err) {
-      setStatus("Erreur : " + err.message, "err");
-      if (taskId) updateHistoryEntry(taskId, { status: "fail" });
+      if (err.message === "NETWORK_LOST") {
+        setStatus("Connexion perdue. La génération continue côté serveur — rouvre l'app plus tard, elle apparaîtra dans l'Historique.", "err");
+        // leave the history entry as "pending" — checkAllPendingHistory()
+        // will pick it up next time the app is opened
+      } else {
+        setStatus("Erreur : " + err.message, "err");
+        if (taskId) updateHistoryEntry(taskId, { status: "fail" });
+      }
     } finally {
       btn.disabled = false;
       btn.classList.remove("working");
