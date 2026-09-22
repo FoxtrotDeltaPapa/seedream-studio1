@@ -302,6 +302,63 @@
     font-size: 11px;
     padding: 10px 0 6px 0;
   }
+
+  /* history */
+  .history-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .history-info { flex: 1; min-width: 0; }
+  .history-prompt {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .history-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .history-badge.pending { background: var(--accent-dim); color: var(--text); }
+  .history-badge.success { background: #1f3d2c; color: var(--ok); }
+  .history-badge.fail { background: #3d1f1f; color: var(--err); }
+  .history-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .history-actions button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 8px;
+    padding: 6px 9px;
+    font-size: 12px;
+  }
 </style>
 </head>
 <body>
@@ -406,12 +463,19 @@
   </div>
 </section>
 
+<section>
+  <h2>Historique</h2>
+  <div id="historyList"></div>
+  <div class="empty-hint" id="historyEmptyHint">Aucune génération pour l'instant.</div>
+</section>
+
 <footer>Fichier local — usage personnel uniquement</footer>
 
 <script>
   const $ = id => document.getElementById(id);
   const STORAGE_PROMPTS = "seedream_saved_prompts";
   const STORAGE_KEY = "seedream_api_key";
+  const STORAGE_HISTORY = "seedream_history";
 
   // ---------- API key ----------
   function loadKey() {
@@ -502,6 +566,130 @@
     renderPrompts();
     setStatus("Prompt \"" + name + "\" sauvegardé.", "ok");
   });
+
+  // ---------- History ----------
+  function getHistory() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_HISTORY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setHistory(list) {
+    // keep the most recent 50 entries so storage doesn't grow forever
+    localStorage.setItem(STORAGE_HISTORY, JSON.stringify(list.slice(0, 50)));
+  }
+  function addHistoryEntry(entry) {
+    const list = getHistory();
+    list.unshift(entry);
+    setHistory(list);
+    renderHistory();
+  }
+  function updateHistoryEntry(taskId, changes) {
+    const list = getHistory();
+    const idx = list.findIndex(e => e.taskId === taskId);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...changes };
+      setHistory(list);
+      renderHistory();
+    }
+  }
+  function formatHistoryDate(ts) {
+    const d = new Date(ts);
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
+      d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+  function renderHistory() {
+    const list = getHistory();
+    const wrap = $("historyList");
+    wrap.innerHTML = "";
+    $("historyEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach(entry => {
+      const item = document.createElement("div");
+      item.className = "history-item";
+
+      const thumb = document.createElement(entry.resultUrl ? "img" : "div");
+      thumb.className = "history-thumb";
+      if (entry.resultUrl) thumb.src = entry.resultUrl;
+
+      const info = document.createElement("div");
+      info.className = "history-info";
+      const promptEl = document.createElement("div");
+      promptEl.className = "history-prompt";
+      promptEl.textContent = entry.prompt || "(sans prompt)";
+      const meta = document.createElement("div");
+      meta.className = "history-meta";
+      const badge = document.createElement("span");
+      badge.className = "history-badge " + entry.status;
+      badge.textContent = entry.status === "pending" ? "En attente" : entry.status === "success" ? "Terminé" : "Échec";
+      meta.appendChild(badge);
+      const dateSpan = document.createElement("span");
+      dateSpan.textContent = formatHistoryDate(entry.timestamp);
+      meta.appendChild(dateSpan);
+      info.appendChild(promptEl);
+      info.appendChild(meta);
+
+      const actions = document.createElement("div");
+      actions.className = "history-actions";
+      if (entry.status === "pending") {
+        const checkBtn = document.createElement("button");
+        checkBtn.textContent = "Vérifier";
+        checkBtn.addEventListener("click", () => checkHistoryEntry(entry.taskId));
+        actions.appendChild(checkBtn);
+      }
+      if (entry.resultUrl) {
+        const useBtn = document.createElement("button");
+        useBtn.textContent = "Voir";
+        useBtn.addEventListener("click", () => {
+          $("resultImg").src = entry.resultUrl;
+          $("downloadLink").href = entry.resultUrl;
+          $("resultWrap").style.display = "block";
+          $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+        actions.appendChild(useBtn);
+      }
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        setHistory(getHistory().filter(e => e.taskId !== entry.taskId));
+        renderHistory();
+      });
+      actions.appendChild(delBtn);
+
+      item.appendChild(thumb);
+      item.appendChild(info);
+      item.appendChild(actions);
+      wrap.appendChild(item);
+    });
+  }
+
+  async function checkHistoryEntry(taskId) {
+    const apiKey = $("apiKey").value.trim();
+    if (!apiKey) return;
+    try {
+      const res = await fetch("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=" + encodeURIComponent(taskId), {
+        headers: { "Authorization": "Bearer " + apiKey }
+      });
+      const data = await res.json();
+      if (data.code !== 200) return;
+      const state = data.data.state;
+      if (state === "success") {
+        const result = JSON.parse(data.data.resultJson);
+        updateHistoryEntry(taskId, { status: "success", resultUrl: result.resultUrls[0] });
+      } else if (state === "fail") {
+        updateHistoryEntry(taskId, { status: "fail" });
+      }
+      // if still "waiting", leave as pending — user can check again later
+    } catch (e) {
+      // silent — user can retry manually
+    }
+  }
+
+  // On load: re-check any generations left "pending" (e.g. the app was
+  // closed while a generation was still running server-side).
+  function checkAllPendingHistory() {
+    getHistory().filter(e => e.status === "pending").forEach(e => checkHistoryEntry(e.taskId));
+  }
 
   // ---------- Image upload (from phone) ----------
   $("pickImageBtn").addEventListener("click", () => $("imageFile").click());
@@ -658,6 +846,7 @@
       }
     };
 
+    let taskId = null;
     try {
       const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
         method: "POST",
@@ -671,8 +860,16 @@
       if (createData.code !== 200) {
         throw new Error(createData.msg || "Échec de la création de la tâche");
       }
-      const taskId = createData.data.taskId;
+      taskId = createData.data.taskId;
       setStatus("Tâche créée (" + taskId + "). En attente du résultat...");
+
+      addHistoryEntry({
+        taskId: taskId,
+        prompt: prompt,
+        timestamp: Date.now(),
+        status: "pending",
+        resultUrl: null
+      });
 
       const resultUrl = await pollTask(taskId, apiKey);
 
@@ -680,8 +877,10 @@
       $("downloadLink").href = resultUrl;
       $("resultWrap").style.display = "block";
       setStatus("Terminé.", "ok");
+      updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
     } catch (err) {
       setStatus("Erreur : " + err.message, "err");
+      if (taskId) updateHistoryEntry(taskId, { status: "fail" });
     } finally {
       btn.disabled = false;
       btn.classList.remove("working");
@@ -702,6 +901,8 @@
   // init
   loadKey();
   renderPrompts();
+  renderHistory();
+  checkAllPendingHistory();
 </script>
 
 </body>
