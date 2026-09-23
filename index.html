@@ -485,7 +485,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v14</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v15</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -929,7 +929,7 @@
       // name) — works whether success came from the immediate poll or a
       // later background re-check.
       if (list[idx].isCharacter && list[idx].status === "success" && !list[idx].addedToLibrary) {
-        upsertCharacterSheet(list[idx].characterName, list[idx].sheetType, list[idx].resultUrl, list[idx].prompt);
+        upsertCharacterSheet(list[idx].characterName, list[idx].sheetType, list[idx].resultUrl, list[idx].prompt, list[idx].sourceImages);
         list[idx].addedToLibrary = true;
       }
       setHistory(list);
@@ -1304,6 +1304,11 @@
 
       const actions = document.createElement("div");
       actions.className = "char-actions";
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "Modifier";
+      editBtn.addEventListener("click", () => {
+        loadCharacterIntoForm(c);
+      });
       const useBtn = document.createElement("button");
       useBtn.textContent = "Utiliser";
       useBtn.addEventListener("click", () => {
@@ -1327,6 +1332,7 @@
         setCharacters(getCharacters().filter(x => x.name !== c.name));
         renderCharacters();
       });
+      actions.appendChild(editBtn);
       actions.appendChild(useBtn);
       actions.appendChild(delBtn);
 
@@ -1340,7 +1346,7 @@
   // Merge a freshly generated sheet into the record for this character
   // name — body and face sheets share one record so "Utiliser" can add
   // both at once.
-  function upsertCharacterSheet(name, sheetType, resultUrl, prompt) {
+  function upsertCharacterSheet(name, sheetType, resultUrl, prompt, sourceImages) {
     const list = getCharacters();
     const key = (name || "").trim().toLowerCase();
     let idx = list.findIndex(c => c.name.trim().toLowerCase() === key);
@@ -1351,14 +1357,37 @@
     if (sheetType === "face") {
       list[idx].faceSheetUrl = resultUrl;
       list[idx].facePrompt = prompt;
+      list[idx].faceSourceImages = sourceImages || [];
       list[idx].faceTimestamp = Date.now();
     } else {
       list[idx].bodySheetUrl = resultUrl;
       list[idx].bodyPrompt = prompt;
+      list[idx].bodySourceImages = sourceImages || [];
       list[idx].bodyTimestamp = Date.now();
     }
     setCharacters(list);
     renderCharacters();
+  }
+
+  // Preload an existing character into the form so the person can
+  // regenerate a sheet or add the missing one (body or face).
+  function loadCharacterIntoForm(c) {
+    $("charForm").style.display = "block";
+    $("charName").value = c.name;
+
+    // Default to whichever sheet is still missing; if both exist, keep body.
+    const targetType = !c.bodySheetUrl && c.faceSheetUrl ? "face" : "body";
+    $("charSheetType").value = targetType;
+
+    const existingPrompt = targetType === "face" ? c.facePrompt : c.bodyPrompt;
+    $("charPrompt").value = existingPrompt || (targetType === "face" ? CHAR_TEMPLATE_FACE : CHAR_TEMPLATE_BODY);
+
+    const existingSources = (targetType === "face" ? c.faceSourceImages : c.bodySourceImages) || [];
+    charSourceImages = existingSources.slice();
+    renderCharSourceGallery();
+
+    setCharStatus("Personnage \"" + c.name + "\" chargé — modifie ou complète, puis génère.", "ok");
+    $("charForm").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   $("toggleCharForm").addEventListener("click", () => {
