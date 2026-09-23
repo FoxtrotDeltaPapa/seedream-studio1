@@ -491,7 +491,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v25</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v26</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1564,7 +1564,7 @@
         loadCharacterIntoForm(c);
       });
       const useBtn = document.createElement("button");
-      useBtn.textContent = "Utiliser";
+      useBtn.textContent = "🖼️ Image";
       useBtn.addEventListener("click", () => {
         const toAdd = [];
         if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles)" });
@@ -1582,6 +1582,25 @@
         switchTab("generation");
         $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
       });
+      const useVideoBtn = document.createElement("button");
+      useVideoBtn.textContent = "🎬 Vidéo";
+      useVideoBtn.addEventListener("click", () => {
+        const toAdd = [];
+        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles)" });
+        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Planche visage de \"" + c.name + "\"", kind: "planche visage/expressions" });
+        if (toAdd.length === 0) return;
+        let added = 0;
+        toAdd.forEach(ref => {
+          if (videoReferenceImages.length < MAX_VIDEO_REFERENCE_IMAGES) {
+            videoReferenceImages.push(ref);
+            added++;
+          }
+        });
+        renderVideoGallery();
+        setVideoUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence.", "ok");
+        switchTab("video");
+        $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
       const delBtn = document.createElement("button");
       delBtn.textContent = "×";
       delBtn.addEventListener("click", () => {
@@ -1590,6 +1609,7 @@
       });
       actions.appendChild(editBtn);
       actions.appendChild(useBtn);
+      actions.appendChild(useVideoBtn);
       actions.appendChild(delBtn);
 
       const topRow = document.createElement("div");
@@ -2277,7 +2297,16 @@
     const resolutionUsed = $("videoResolution").value;
     const balanceBeforeGen = currentBalanceValue;
     const consistencyText = buildConsistencyText("videoConsistencyFace", "videoConsistencyBody", "videoConsistencyHair");
-    const finalPrompt = consistencyText ? prompt + "\n\n" + consistencyText : prompt;
+
+    const labeledVideoRefs = videoReferenceImages.filter(r => r.kind);
+    let videoRefContextText = "";
+    if (labeledVideoRefs.length) {
+      const lines = videoReferenceImages.map((r, i) => r.kind ? ("Image " + (i + 1) + " : " + r.kind + ".") : null).filter(Boolean);
+      videoRefContextText = "Images de référence fournies :\n" + lines.join("\n") +
+        "\nUtilise ces planches ensemble comme référence fidèle du même personnage (identité, visage, corps) tout au long de la vidéo.";
+    }
+
+    const finalPrompt = [videoRefContextText, prompt, consistencyText].filter(Boolean).join("\n\n");
 
     const input = {
       prompt: finalPrompt,
