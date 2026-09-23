@@ -464,7 +464,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso</div>
+  <div class="mark">Générateur perso · <span id="appVersion">v13</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -876,6 +876,23 @@
     const idx = list.findIndex(e => e.taskId === taskId);
     if (idx !== -1) {
       list[idx] = { ...list[idx], ...changes };
+      // If this was a character-sheet generation and it just succeeded,
+      // add it to the character library too — works whether success came
+      // from the immediate poll or a later background re-check.
+      if (list[idx].isCharacter && list[idx].status === "success" && !list[idx].addedToLibrary) {
+        const chars = getCharacters();
+        chars.unshift({
+          id: taskId,
+          name: list[idx].characterName,
+          resultUrl: list[idx].resultUrl,
+          sourceImages: list[idx].sourceImages || [],
+          prompt: list[idx].prompt,
+          timestamp: Date.now()
+        });
+        setCharacters(chars);
+        renderCharacters();
+        list[idx].addedToLibrary = true;
+      }
       setHistory(list);
       renderHistory();
     }
@@ -905,7 +922,7 @@
       info.className = "history-info";
       const promptEl = document.createElement("div");
       promptEl.className = "history-prompt";
-      promptEl.textContent = entry.prompt || "(sans prompt)";
+      promptEl.textContent = (entry.isCharacter ? "🧑 " + entry.characterName + " — " : "") + (entry.prompt || "(sans prompt)");
       const meta = document.createElement("div");
       meta.className = "history-meta";
       const badge = document.createElement("span");
@@ -1318,6 +1335,7 @@
       }
     };
 
+    let taskId = null;
     try {
       const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
         method: "POST",
@@ -1331,31 +1349,46 @@
       if (createData.code !== 200) {
         throw new Error(createData.msg || "Échec de la création de la tâche");
       }
-      const taskId = createData.data.taskId;
+      taskId = createData.data.taskId;
       setCharStatus("Tâche créée. En attente du résultat...");
 
-      const resultUrl = await pollTask(taskId, apiKey, setCharStatus);
-
-      const list = getCharacters();
-      list.unshift({
-        id: taskId,
-        name: name,
-        resultUrl: resultUrl,
-        sourceImages: charSourceImages.slice(),
+      // Saved to the shared Historique right away, flagged as a character
+      // sheet — so it's tracked even if the app is closed or backgrounded,
+      // and gets auto-checked next time the app opens.
+      addHistoryEntry({
+        taskId: taskId,
         prompt: prompt,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        status: "pending",
+        resultUrl: null,
+        aspectRatio: $("charAspectRatio").value,
+        quality: $("charQuality").value,
+        outputFormat: $("charOutputFormat").value,
+        nsfwChecker: $("charNsfwChecker").value,
+        isCharacter: true,
+        characterName: name,
+        sourceImages: charSourceImages.slice(),
+        addedToLibrary: false
       });
-      setCharacters(list);
-      renderCharacters();
+
+      const resultUrl = await pollTask(taskId, apiKey, setCharStatus, 180);
 
       setCharStatus("Planche créée et sauvegardée.", "ok");
+      updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
       checkBalance();
       $("charName").value = "";
       charSourceImages = [];
       renderCharSourceGallery();
       $("charForm").style.display = "none";
     } catch (err) {
-      setCharStatus("Erreur : " + err.message, "err");
+      if (err.message === "NETWORK_LOST") {
+        setCharStatus("Connexion perdue. La génération continue côté serveur — retrouve-la dans l'Historique une fois l'app rouverte.", "err");
+        // leave the history entry as "pending" — checkAllPendingHistory()
+        // will pick it up (and add it to the character library) later
+      } else {
+        setCharStatus("Erreur : " + err.message, "err");
+        if (taskId) updateHistoryEntry(taskId, { status: "fail" });
+      }
     } finally {
       btn.disabled = false;
       btn.classList.remove("working");
@@ -1402,9 +1435,9 @@
     el.className = kind || "";
   }
 
-  async function pollTask(taskId, apiKey, onStatus) {
+  async function pollTask(taskId, apiKey, onStatus, maxAttemptsOverride) {
     const report = onStatus || setStatus;
-    const maxAttempts = 60; // ~2 min at 2s interval
+    const maxAttempts = maxAttemptsOverride || 60; // default ~2 min at 2s interval
     let consecutiveNetworkErrors = 0;
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
