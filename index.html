@@ -491,7 +491,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v23</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v25</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -638,6 +638,7 @@
     <div class="result-actions">
       <a id="downloadLink" href="#" download="SeedreamStudio/seedream-result.png">Télécharger</a>
       <button id="copyUrlBtn">Copier l'URL</button>
+      <button id="sendToVideoBtn">🎬 Vers Vidéo</button>
     </div>
   </div>
 </section>
@@ -651,53 +652,130 @@
 
 <div id="tabVideo" class="tab-panel" style="display:none;">
 
+<section>
+  <h2>Prompts vidéo favoris</h2>
+  <div class="prompt-chips" id="videoPromptChips"></div>
+  <div class="empty-hint" id="videoPromptEmptyHint">Aucun prompt vidéo sauvegardé pour l'instant.</div>
+  <div class="save-prompt-row">
+    <input type="text" id="videoPromptName" placeholder="Nom du prompt à sauvegarder">
+    <button id="saveVideoPromptBtn">Sauver</button>
+  </div>
+</section>
+
 <section id="videoSection">
   <h2>Vidéo</h2>
 
   <label class="field-label">Modèle</label>
   <select id="videoModel">
-    <option value="wan/2-7-text-to-video">Wan 2.7 — Texte vers vidéo</option>
-    <option value="wan/2-7-image-to-video" selected>Wan 2.7 — Image vers vidéo</option>
-    <option value="custom">Wan 3.0 / autre (ID personnalisé)</option>
+    <option value="wan/3-0-video" selected>Wan 3.0 — tout-en-un (ID à vérifier)</option>
+    <option value="wan/2-7-text-to-video">Wan 2.7 — Texte vers vidéo (confirmé)</option>
+    <option value="wan/2-7-image-to-video">Wan 2.7 — Image vers vidéo (confirmé)</option>
+    <option value="custom">Autre / ID personnalisé</option>
   </select>
   <div id="videoModelCustomWrap" style="display:none; margin-top:8px;">
     <label class="field-label">ID du modèle kie.ai</label>
     <input type="text" id="videoModelCustom" placeholder="ex : wan/3-0-video">
   </div>
   <div class="empty-hint" style="margin-top:8px;">
-    ⚠️ Wan 3.0 vient de sortir (24 août 2026) — je n'ai pas pu confirmer son identifiant exact chez kie.ai. Wan 2.7 est confirmé et fonctionnel. Vérifie l'ID exact de Wan 3.0 sur kie.ai puis colle-le ci-dessus ; si un réglage ne correspond pas, le message d'erreur détaillé t'indiquera quoi corriger.
+    ⚠️ Wan 3.0 est bien listé sur kie.ai (kie.ai/wan3.0-video, champs confirmés ci-dessous), mais je n'ai pas pu vérifier à 100% le texte exact de son ID modèle. Pour le confirmer : ouvre <b>kie.ai/wan3.0-video</b> sur ton téléphone, onglet "API" → le curl affiché montre l'ID exact. Si besoin, colle-le via "Autre / ID personnalisé". Wan 2.7 est confirmé à coup sûr.
   </div>
 
-  <label class="field-label" style="margin-top:12px;">Image de départ (optionnelle, pour image → vidéo)</label>
-  <button type="button" class="pick-btn" id="videoPickBtn">📷 Choisir une photo</button>
-  <input type="file" id="videoImageFile" accept="*/*" style="display:none;">
-  <div id="videoImageGallery" class="image-gallery"></div>
-  <div id="videoUploadStatus" class="upload-status"></div>
+  <label class="field-label" style="margin-top:12px;">Images de référence (jusqu'à 10)</label>
+  <div class="image-source">
+    <button type="button" class="pick-btn" id="videoPickBtn">📷 Ajouter des photos</button>
+    <input type="file" id="videoImageFile" accept="*/*" multiple style="display:none;">
+    <div id="videoImageGallery" class="image-gallery"></div>
+    <div id="videoUploadStatus" class="upload-status"></div>
+  </div>
   <label class="field-label">…ou colle une URL d'image existante</label>
-  <input type="url" id="videoImageUrl" placeholder="https://...">
+  <div class="url-add-row">
+    <input type="url" id="videoImageUrl" placeholder="https://...">
+    <button type="button" id="videoAddUrlBtn">Ajouter</button>
+  </div>
 
   <label class="field-label">Prompt</label>
+  <button type="button" class="pick-btn" id="toggleVideoPromptHelper" style="margin-bottom:10px;">🪄 Générateur de prompt</button>
+  <div id="videoPromptHelper" style="display:none; margin-bottom:12px;">
+    <div class="empty-hint" style="margin-bottom:10px;">
+      Décris le sujet/l'action, le mouvement de caméra, le style et l'ambiance sonore pour un meilleur résultat.
+    </div>
+    <label class="field-label">Sujet / action</label>
+    <input type="text" id="vphAction" placeholder="Ex : un renard trotte dans la neige">
+    <label class="field-label">Mouvement de caméra</label>
+    <input type="text" id="vphCamera" placeholder="Ex : travelling avant, léger panoramique">
+    <label class="field-label">Style / ambiance</label>
+    <input type="text" id="vphStyle" placeholder="Ex : cinématique, lumière dorée du matin">
+    <label class="field-label">Son / audio</label>
+    <input type="text" id="vphAudio" placeholder="Ex : bruit de pas dans la neige, vent léger">
+    <label class="field-label">Instructions multi-références (si plusieurs images)</label>
+    <input type="text" id="vphMultiRef" placeholder="Ex : utilise Image1 pour le personnage, Image2 pour le décor">
+    <button type="button" class="pick-btn" id="generateVideoPromptBtn" style="margin-top:12px;">Insérer dans le prompt</button>
+  </div>
   <textarea id="videoPrompt" placeholder="Ex : un renard traverse une forêt enneigée au lever du soleil, travelling avant, lumière cinématique"></textarea>
 
-  <div class="row" style="margin-top:12px;">
+  <label class="field-label">Cohérence du personnage (ajoutée automatiquement)</label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+    <input type="checkbox" id="videoConsistencyFace" checked style="width:auto;">
+    Visage
+  </label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+    <input type="checkbox" id="videoConsistencyBody" checked style="width:auto;">
+    Corps
+  </label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text); margin-bottom:12px;">
+    <input type="checkbox" id="videoConsistencyHair" checked style="width:auto;">
+    Cheveux
+  </label>
+
+  <div class="row">
     <div>
-      <label class="field-label">Durée</label>
-      <select id="videoDuration">
-        <option value="5" selected>5 s</option>
-        <option value="10">10 s</option>
-        <option value="15">15 s</option>
-      </select>
+      <label class="field-label">Durée (2-30s, -1 = auto)</label>
+      <input type="number" id="videoDuration" value="5" min="-1" max="30" step="1">
     </div>
     <div>
       <label class="field-label">Résolution</label>
       <select id="videoResolution">
-        <option value="720p" selected>720p</option>
-        <option value="1080p">1080p</option>
+        <option value="480P">480P</option>
+        <option value="720P" selected>720P</option>
+        <option value="1080P">1080P</option>
       </select>
     </div>
   </div>
 
-  <button class="generate-btn" id="videoGenerateBtn" style="margin-top:12px;">Générer la vidéo</button>
+  <div class="row" style="margin-top:12px;">
+    <div>
+      <label class="field-label">Format</label>
+      <select id="videoAspectRatio">
+        <option value="adaptive" selected>Adaptatif</option>
+        <option value="16:9">16:9</option>
+        <option value="9:16">9:16</option>
+        <option value="1:1">1:1</option>
+        <option value="4:3">4:3</option>
+        <option value="3:4">3:4</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Audio généré</label>
+      <select id="videoAudio">
+        <option value="true" selected>Activé</option>
+        <option value="false">Désactivé</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <div>
+      <label class="field-label">Filtre NSFW</label>
+      <select id="videoNsfwChecker">
+        <option value="true" selected>Activé</option>
+        <option value="false">Désactivé</option>
+      </select>
+    </div>
+    <div></div>
+  </div>
+
+  <div class="empty-hint" id="videoCostEstimate" style="margin-top:10px;"></div>
+  <button class="generate-btn" id="videoGenerateBtn" style="margin-top:4px;">Générer la vidéo</button>
   <div id="videoStatus"></div>
 
   <div id="videoResultWrap" style="display:none; margin-top:14px;">
@@ -828,6 +906,7 @@
   const STORAGE_HISTORY = "seedream_history";
   const STORAGE_CHARACTERS = "seedream_characters";
   const STORAGE_CHAR_PROMPTS = "seedream_char_prompts";
+  const STORAGE_VIDEO_PROMPTS = "seedream_video_prompts";
 
   // Chrome supports a relative sub-path in the download attribute, which
   // creates a dedicated subfolder inside the device's Downloads folder
@@ -1159,6 +1238,12 @@
         triggerDownload(entry.resultUrl, entry.outputFormat === "jpeg" ? "jpg" : "png");
       });
       actions.appendChild(dlBtn);
+
+      const toVideoBtn = document.createElement("button");
+      toVideoBtn.textContent = "🎬";
+      toVideoBtn.title = "Envoyer vers Vidéo";
+      toVideoBtn.addEventListener("click", () => sendImageToVideo(entry.resultUrl));
+      actions.appendChild(toVideoBtn);
     }
     const delBtn = document.createElement("button");
     delBtn.textContent = "×";
@@ -1967,7 +2052,8 @@
   });
 
   // ---------- Video (Wan) ----------
-  let videoImageRef = null; // single { url, label } or null
+  let videoReferenceImages = []; // array of { url, label }
+  const MAX_VIDEO_REFERENCE_IMAGES = 10;
 
   $("videoModel").addEventListener("change", () => {
     $("videoModelCustomWrap").style.display = $("videoModel").value === "custom" ? "block" : "none";
@@ -1983,59 +2069,193 @@
     el.textContent = msg;
     el.className = kind || "";
   }
-  function renderVideoImageGallery() {
+  function renderVideoGallery() {
     const wrap = $("videoImageGallery");
     wrap.innerHTML = "";
-    if (!videoImageRef) return;
-    const item = document.createElement("div");
-    item.className = "gallery-thumb-wrap";
-    const img = document.createElement("img");
-    img.src = videoImageRef.url;
-    img.referrerPolicy = "no-referrer";
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "×";
-    removeBtn.addEventListener("click", () => {
-      videoImageRef = null;
-      renderVideoImageGallery();
+    videoReferenceImages.forEach((ref, i) => {
+      const item = document.createElement("div");
+      item.className = "gallery-thumb-wrap";
+      const img = document.createElement("img");
+      img.src = ref.url;
+      img.referrerPolicy = "no-referrer";
+      if (ref.label) img.title = ref.label;
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        videoReferenceImages.splice(i, 1);
+        renderVideoGallery();
+      });
+      item.appendChild(img);
+      item.appendChild(removeBtn);
+      if (ref.label) {
+        const cap = document.createElement("div");
+        cap.textContent = ref.label;
+        cap.style.fontSize = "9px";
+        cap.style.color = "var(--text-dim)";
+        cap.style.marginTop = "2px";
+        cap.style.maxWidth = "72px";
+        cap.style.overflow = "hidden";
+        cap.style.textOverflow = "ellipsis";
+        cap.style.whiteSpace = "nowrap";
+        item.appendChild(cap);
+      }
+      wrap.appendChild(item);
     });
-    item.appendChild(img);
-    item.appendChild(removeBtn);
-    wrap.appendChild(item);
   }
 
   $("videoPickBtn").addEventListener("click", () => $("videoImageFile").click());
   $("videoImageFile").addEventListener("change", async () => {
-    const file = $("videoImageFile").files[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setVideoUploadStatus("Ce fichier n'est pas une image.", "err");
-      $("videoImageFile").value = "";
-      return;
-    }
+    const files = Array.from($("videoImageFile").files || []);
+    if (!files.length) return;
     const apiKey = $("apiKey").value.trim();
     if (!apiKey) {
       setVideoUploadStatus("Entre ta clé API avant d'envoyer une photo.", "err");
       $("videoImageFile").value = "";
       return;
     }
-    try {
-      setVideoUploadStatus("Envoi de la photo...");
-      const url = await uploadOneFile(file, apiKey);
-      videoImageRef = { url: url, label: null };
-      renderVideoImageGallery();
-      setVideoUploadStatus("Photo envoyée et prête à l'emploi.", "ok");
-    } catch (err) {
-      setVideoUploadStatus("Erreur d'envoi : " + err.message, "err");
+    const room = MAX_VIDEO_REFERENCE_IMAGES - videoReferenceImages.length;
+    if (room <= 0) {
+      setVideoUploadStatus("Maximum " + MAX_VIDEO_REFERENCE_IMAGES + " images de référence.", "err");
+      $("videoImageFile").value = "";
+      return;
     }
+    const toUpload = files.slice(0, room);
+    let uploaded = 0;
+    for (const file of toUpload) {
+      if (!file.type.startsWith("image/")) {
+        setVideoUploadStatus("Un fichier ignoré (pas une image) : " + file.name, "err");
+        continue;
+      }
+      try {
+        setVideoUploadStatus("Envoi " + (uploaded + 1) + "/" + toUpload.length + "...");
+        const url = await uploadOneFile(file, apiKey);
+        videoReferenceImages.push({ url: url, label: null });
+        renderVideoGallery();
+        uploaded++;
+      } catch (err) {
+        setVideoUploadStatus("Erreur d'envoi (\"" + file.name + "\") : " + err.message, "err");
+      }
+    }
+    if (uploaded > 0) setVideoUploadStatus(uploaded + " photo(s) envoyée(s).", "ok");
     $("videoImageFile").value = "";
   });
-  $("videoImageUrl").addEventListener("change", () => {
+  $("videoAddUrlBtn").addEventListener("click", () => {
     const url = $("videoImageUrl").value.trim();
     if (!url) return;
-    videoImageRef = { url: url, label: null };
-    renderVideoImageGallery();
+    if (videoReferenceImages.length >= MAX_VIDEO_REFERENCE_IMAGES) {
+      setVideoUploadStatus("Maximum " + MAX_VIDEO_REFERENCE_IMAGES + " images de référence.", "err");
+      return;
+    }
+    videoReferenceImages.push({ url: url, label: null });
     $("videoImageUrl").value = "";
+    renderVideoGallery();
   });
+
+  // ---------- Video saved prompts ----------
+  function getVideoPrompts() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_VIDEO_PROMPTS) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setVideoPrompts(list) {
+    localStorage.setItem(STORAGE_VIDEO_PROMPTS, JSON.stringify(list));
+  }
+  function renderVideoPrompts() {
+    const list = getVideoPrompts();
+    const wrap = $("videoPromptChips");
+    wrap.innerHTML = "";
+    $("videoPromptEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const useBtn = document.createElement("button");
+      useBtn.className = "use";
+      useBtn.textContent = p.name;
+      useBtn.title = p.text;
+      useBtn.addEventListener("click", () => {
+        $("videoPrompt").value = p.text;
+        if (p.model) $("videoModel").value = p.model;
+        if (p.duration) $("videoDuration").value = p.duration;
+        if (p.resolution) $("videoResolution").value = p.resolution;
+        if (p.aspectRatio) $("videoAspectRatio").value = p.aspectRatio;
+        if (p.audio) $("videoAudio").value = p.audio;
+        if (p.nsfwChecker) $("videoNsfwChecker").value = p.nsfwChecker;
+      });
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        const l = getVideoPrompts();
+        l.splice(i, 1);
+        setVideoPrompts(l);
+        renderVideoPrompts();
+      });
+      chip.appendChild(useBtn);
+      chip.appendChild(delBtn);
+      wrap.appendChild(chip);
+    });
+  }
+  $("saveVideoPromptBtn").addEventListener("click", () => {
+    const name = $("videoPromptName").value.trim();
+    const text = $("videoPrompt").value.trim();
+    if (!name) { setVideoStatus("Donne un nom au prompt avant de sauver.", "err"); return; }
+    if (!text) { setVideoStatus("Le champ prompt est vide, rien à sauver.", "err"); return; }
+    const list = getVideoPrompts();
+    list.push({
+      name, text,
+      model: $("videoModel").value,
+      duration: $("videoDuration").value,
+      resolution: $("videoResolution").value,
+      aspectRatio: $("videoAspectRatio").value,
+      audio: $("videoAudio").value,
+      nsfwChecker: $("videoNsfwChecker").value
+    });
+    setVideoPrompts(list);
+    $("videoPromptName").value = "";
+    renderVideoPrompts();
+    setVideoStatus("Prompt \"" + name + "\" sauvegardé.", "ok");
+  });
+
+  // ---------- Video prompt generator ----------
+  $("toggleVideoPromptHelper").addEventListener("click", () => {
+    const el = $("videoPromptHelper");
+    el.style.display = el.style.display === "none" ? "block" : "none";
+  });
+  $("generateVideoPromptBtn").addEventListener("click", () => {
+    const action = $("vphAction").value.trim();
+    const camera = $("vphCamera").value.trim();
+    const style = $("vphStyle").value.trim();
+    const audio = $("vphAudio").value.trim();
+    const multiRef = $("vphMultiRef").value.trim();
+    const parts = [];
+    if (action) parts.push(action + ".");
+    if (camera) parts.push("Caméra : " + camera + ".");
+    if (style) parts.push("Style/ambiance : " + style + ".");
+    if (audio) parts.push("Son : " + audio + ".");
+    if (multiRef) parts.push(multiRef + ".");
+    if (!parts.length) { setVideoStatus("Remplis au moins un champ du générateur.", "err"); return; }
+    $("videoPrompt").value = parts.join(" ");
+    $("videoPromptHelper").style.display = "none";
+    $("videoPrompt").focus();
+  });
+
+  // ---------- Video cost estimate ----------
+  function updateVideoCostEstimateDisplay() {
+    const el = $("videoCostEstimate");
+    if (!el) return;
+    const res = $("videoResolution").value;
+    const estimates = getCostEstimates();
+    const key = "video_" + res;
+    const known = estimates[key];
+    if (known) {
+      el.textContent = "Coût estimé : ~" + known + " crédit" + (known === 1 ? "" : "s") + " (d'après ta dernière vidéo en " + res + ")";
+    } else {
+      el.textContent = "Coût estimé : inconnu pour l'instant — on l'apprendra après ta première vidéo en " + res + ".";
+    }
+  }
+  $("videoResolution").addEventListener("change", updateVideoCostEstimateDisplay);
 
   $("videoGenerateBtn").addEventListener("click", async () => {
     const apiKey = $("apiKey").value.trim();
@@ -2054,12 +2274,20 @@
     $("videoResultWrap").style.display = "none";
     setVideoStatus("Envoi de la tâche...");
 
+    const resolutionUsed = $("videoResolution").value;
+    const balanceBeforeGen = currentBalanceValue;
+    const consistencyText = buildConsistencyText("videoConsistencyFace", "videoConsistencyBody", "videoConsistencyHair");
+    const finalPrompt = consistencyText ? prompt + "\n\n" + consistencyText : prompt;
+
     const input = {
-      prompt: prompt,
-      duration: $("videoDuration").value,
-      resolution: $("videoResolution").value
+      prompt: finalPrompt,
+      duration: parseInt($("videoDuration").value, 10),
+      resolution: resolutionUsed,
+      aspect_ratio: $("videoAspectRatio").value,
+      audio: $("videoAudio").value === "true",
+      nsfw_checker: $("videoNsfwChecker").value === "true"
     };
-    if (videoImageRef) input.image_urls = [videoImageRef.url];
+    if (videoReferenceImages.length) input.reference_image_urls = videoReferenceImages.map(r => r.url);
 
     const body = { model: model, input: input };
 
@@ -2099,7 +2327,16 @@
       $("videoResultWrap").style.display = "block";
       setVideoStatus("Terminé.", "ok");
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
-      checkBalance();
+      await checkBalance();
+      if (balanceBeforeGen != null && currentBalanceValue != null) {
+        const used = balanceBeforeGen - currentBalanceValue;
+        if (used > 0) {
+          const estimates = getCostEstimates();
+          estimates["video_" + resolutionUsed] = used;
+          setCostEstimates(estimates);
+          updateVideoCostEstimateDisplay();
+        }
+      }
     } catch (err) {
       if (err.message === "NETWORK_LOST") {
         setVideoStatus("Connexion perdue. La génération continue côté serveur — retrouve-la dans l'Historique vidéo une fois l'app rouverte.", "err");
@@ -2124,6 +2361,20 @@
     }
   });
 
+  // ---------- Send an image result straight into Vidéo ----------
+  function sendImageToVideo(url) {
+    if (videoReferenceImages.length < MAX_VIDEO_REFERENCE_IMAGES) {
+      videoReferenceImages.push({ url: url, label: "Image envoyée depuis l'onglet Image" });
+      renderVideoGallery();
+    }
+    switchTab("video");
+    $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
+    setVideoUploadStatus("Image envoyée comme référence pour la vidéo.", "ok");
+  }
+  $("sendToVideoBtn").addEventListener("click", () => {
+    if ($("resultImg").src) sendImageToVideo($("resultImg").src);
+  });
+
   // ---------- Tabs ----------
   function switchTab(tab) {
     $("tabGeneration").style.display = tab === "generation" ? "block" : "none";
@@ -2144,8 +2395,10 @@
   checkAllPendingHistory();
   renderCharacters();
   renderCharPrompts();
+  renderVideoPrompts();
   checkBalance();
   updateCostEstimateDisplay();
+  updateVideoCostEstimateDisplay();
   switchTab("generation");
 </script>
 
