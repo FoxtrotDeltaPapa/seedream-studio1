@@ -485,7 +485,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v15</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v18</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -567,6 +567,25 @@
     <button type="button" class="pick-btn" id="generatePromptBtn" style="margin-top:12px;">Insérer dans le prompt</button>
   </div>
   <textarea id="prompt" placeholder='Ex : change text "Lite" into "Pro"'></textarea>
+
+  <label class="field-label">Cohérence du personnage (ajoutée automatiquement)</label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+    <input type="checkbox" id="consistencyFace" checked style="width:auto;">
+    Visage
+  </label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+    <input type="checkbox" id="consistencyBody" checked style="width:auto;">
+    Corps
+  </label>
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text); margin-bottom:12px;">
+    <input type="checkbox" id="consistencyHair" checked style="width:auto;">
+    Cheveux
+  </label>
+
+  <label class="field-label" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+    <input type="checkbox" id="consistencyToggle" style="width:auto;" checked>
+    🎯 Ajouter une instruction de fidélité (visage, corps, proportions)
+  </label>
 
   <div class="row">
     <div>
@@ -1399,12 +1418,7 @@
   const CHAR_TEMPLATE_FACE = "Crée une planche d'expressions faciales de ce personnage : neutre, souriant, riant, surpris, en colère, triste, effrayé, sérieux. Même cadrage visage/buste, fond neutre uni, éclairage homogène, cohérence stricte des traits du visage et du style sur toutes les expressions.";
 
   $("charSheetType").addEventListener("change", () => {
-    const isDefaultText = $("charPrompt").value.trim() === CHAR_TEMPLATE_BODY.trim() ||
-      $("charPrompt").value.trim() === CHAR_TEMPLATE_FACE.trim() ||
-      $("charPrompt").value.trim() === "";
-    if (isDefaultText) {
-      $("charPrompt").value = $("charSheetType").value === "face" ? CHAR_TEMPLATE_FACE : CHAR_TEMPLATE_BODY;
-    }
+    $("charPrompt").value = $("charSheetType").value === "face" ? CHAR_TEMPLATE_FACE : CHAR_TEMPLATE_BODY;
   });
 
   // ---------- Character prompt favorites ----------
@@ -1687,11 +1701,19 @@
 
     const qualityUsed = $("quality").value;
     const balanceBeforeGen = currentBalanceValue;
+    const consistencyParts = [];
+    if ($("consistencyFace").checked) consistencyParts.push("les traits du visage");
+    if ($("consistencyBody").checked) consistencyParts.push("la morphologie du corps et les proportions");
+    if ($("consistencyHair").checked) consistencyParts.push("la coiffure");
+    const consistencyText = consistencyParts.length
+      ? "Respecte fidèlement " + consistencyParts.join(", ") + " du personnage de référence fourni. Ne les modifie pas sauf si le prompt principal le demande explicitement."
+      : "";
+    const finalPrompt = consistencyText ? prompt + "\n\n" + consistencyText : prompt;
 
     const body = {
       model: "seedream/5-pro-image-to-image",
       input: {
-        prompt: prompt,
+        prompt: finalPrompt,
         image_urls: referenceImages,
         aspect_ratio: $("aspectRatio").value,
         quality: $("quality").value,
