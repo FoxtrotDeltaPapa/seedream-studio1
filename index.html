@@ -491,7 +491,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v22</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v23</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -517,7 +517,8 @@
 </section>
 
 <div class="tab-bar">
-  <button type="button" class="tab-btn active" id="tabBtnGeneration">Génération</button>
+  <button type="button" class="tab-btn active" id="tabBtnGeneration">Image</button>
+  <button type="button" class="tab-btn" id="tabBtnVideo">Vidéo</button>
   <button type="button" class="tab-btn" id="tabBtnCharacters">Personnages</button>
 </div>
 
@@ -646,6 +647,74 @@
   <div id="historyListGen"></div>
   <div class="empty-hint" id="historyEmptyHintGen">Aucune génération pour l'instant.</div>
 </section>
+</div>
+
+<div id="tabVideo" class="tab-panel" style="display:none;">
+
+<section id="videoSection">
+  <h2>Vidéo</h2>
+
+  <label class="field-label">Modèle</label>
+  <select id="videoModel">
+    <option value="wan/2-7-text-to-video">Wan 2.7 — Texte vers vidéo</option>
+    <option value="wan/2-7-image-to-video" selected>Wan 2.7 — Image vers vidéo</option>
+    <option value="custom">Wan 3.0 / autre (ID personnalisé)</option>
+  </select>
+  <div id="videoModelCustomWrap" style="display:none; margin-top:8px;">
+    <label class="field-label">ID du modèle kie.ai</label>
+    <input type="text" id="videoModelCustom" placeholder="ex : wan/3-0-video">
+  </div>
+  <div class="empty-hint" style="margin-top:8px;">
+    ⚠️ Wan 3.0 vient de sortir (24 août 2026) — je n'ai pas pu confirmer son identifiant exact chez kie.ai. Wan 2.7 est confirmé et fonctionnel. Vérifie l'ID exact de Wan 3.0 sur kie.ai puis colle-le ci-dessus ; si un réglage ne correspond pas, le message d'erreur détaillé t'indiquera quoi corriger.
+  </div>
+
+  <label class="field-label" style="margin-top:12px;">Image de départ (optionnelle, pour image → vidéo)</label>
+  <button type="button" class="pick-btn" id="videoPickBtn">📷 Choisir une photo</button>
+  <input type="file" id="videoImageFile" accept="*/*" style="display:none;">
+  <div id="videoImageGallery" class="image-gallery"></div>
+  <div id="videoUploadStatus" class="upload-status"></div>
+  <label class="field-label">…ou colle une URL d'image existante</label>
+  <input type="url" id="videoImageUrl" placeholder="https://...">
+
+  <label class="field-label">Prompt</label>
+  <textarea id="videoPrompt" placeholder="Ex : un renard traverse une forêt enneigée au lever du soleil, travelling avant, lumière cinématique"></textarea>
+
+  <div class="row" style="margin-top:12px;">
+    <div>
+      <label class="field-label">Durée</label>
+      <select id="videoDuration">
+        <option value="5" selected>5 s</option>
+        <option value="10">10 s</option>
+        <option value="15">15 s</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Résolution</label>
+      <select id="videoResolution">
+        <option value="720p" selected>720p</option>
+        <option value="1080p">1080p</option>
+      </select>
+    </div>
+  </div>
+
+  <button class="generate-btn" id="videoGenerateBtn" style="margin-top:12px;">Générer la vidéo</button>
+  <div id="videoStatus"></div>
+
+  <div id="videoResultWrap" style="display:none; margin-top:14px;">
+    <video id="videoResultPlayer" controls style="width:100%; border-radius:10px; border:1px solid var(--border); background:#0e0d0a;"></video>
+    <div class="result-actions">
+      <a id="videoDownloadLink" href="#" download="SeedreamStudio/video.mp4">Télécharger</a>
+      <button id="videoCopyUrlBtn">Copier l'URL</button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Historique vidéo</h2>
+  <div id="historyListVideo"></div>
+  <div class="empty-hint" id="historyEmptyHintVideo">Aucune vidéo générée pour l'instant.</div>
+</section>
+
 </div>
 
 <div id="tabCharacters" class="tab-panel" style="display:none;">
@@ -985,11 +1054,17 @@
     const item = document.createElement("div");
     item.className = "history-item";
 
-    const thumb = document.createElement(entry.resultUrl ? "img" : "div");
+    const thumb = document.createElement((entry.resultUrl && !entry.isVideo) ? "img" : "div");
     thumb.className = "history-thumb";
-    if (entry.resultUrl) {
+    if (entry.resultUrl && !entry.isVideo) {
       thumb.src = entry.resultUrl;
       thumb.referrerPolicy = "no-referrer";
+    } else if (entry.isVideo) {
+      thumb.style.display = "flex";
+      thumb.style.alignItems = "center";
+      thumb.style.justifyContent = "center";
+      thumb.style.fontSize = "20px";
+      thumb.textContent = "🎬";
     }
 
     const info = document.createElement("div");
@@ -1019,7 +1094,36 @@
       checkBtn.addEventListener("click", () => checkHistoryEntry(entry.taskId));
       actions.appendChild(checkBtn);
     }
-    if (entry.resultUrl) {
+    if (entry.resultUrl && entry.isVideo) {
+      const retryBtn = document.createElement("button");
+      retryBtn.textContent = "Réessayer";
+      retryBtn.addEventListener("click", () => {
+        $("videoPrompt").value = entry.prompt || "";
+        switchTab("video");
+        $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      actions.appendChild(retryBtn);
+
+      const useBtn = document.createElement("button");
+      useBtn.textContent = "Voir";
+      useBtn.addEventListener("click", () => {
+        $("videoResultPlayer").src = entry.resultUrl;
+        $("videoDownloadLink").href = entry.resultUrl;
+        $("videoDownloadLink").download = downloadFilename("mp4");
+        $("videoResultWrap").style.display = "block";
+        switchTab("video");
+        $("videoResultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      actions.appendChild(useBtn);
+
+      const dlBtn = document.createElement("button");
+      dlBtn.textContent = "⬇";
+      dlBtn.title = "Télécharger";
+      dlBtn.addEventListener("click", () => {
+        triggerDownload(entry.resultUrl, "mp4");
+      });
+      actions.appendChild(dlBtn);
+    } else if (entry.resultUrl) {
       const editBtn = document.createElement("button");
       editBtn.textContent = "Remodifier";
       editBtn.addEventListener("click", () => {
@@ -1079,7 +1183,8 @@
 
   function renderHistory() {
     const list = getHistory();
-    renderHistoryInto("historyListGen", "historyEmptyHintGen", list.filter(e => !e.isCharacter));
+    renderHistoryInto("historyListGen", "historyEmptyHintGen", list.filter(e => !e.isCharacter && !e.isVideo));
+    renderHistoryInto("historyListVideo", "historyEmptyHintVideo", list.filter(e => e.isVideo));
     renderHistoryInto("historyListChar", "historyEmptyHintChar", list.filter(e => e.isCharacter));
   }
 
@@ -1861,14 +1966,175 @@
     }
   });
 
+  // ---------- Video (Wan) ----------
+  let videoImageRef = null; // single { url, label } or null
+
+  $("videoModel").addEventListener("change", () => {
+    $("videoModelCustomWrap").style.display = $("videoModel").value === "custom" ? "block" : "none";
+  });
+
+  function setVideoUploadStatus(msg, kind) {
+    const el = $("videoUploadStatus");
+    el.textContent = msg;
+    el.className = "upload-status" + (kind ? " " + kind : "");
+  }
+  function setVideoStatus(msg, kind) {
+    const el = $("videoStatus");
+    el.textContent = msg;
+    el.className = kind || "";
+  }
+  function renderVideoImageGallery() {
+    const wrap = $("videoImageGallery");
+    wrap.innerHTML = "";
+    if (!videoImageRef) return;
+    const item = document.createElement("div");
+    item.className = "gallery-thumb-wrap";
+    const img = document.createElement("img");
+    img.src = videoImageRef.url;
+    img.referrerPolicy = "no-referrer";
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "×";
+    removeBtn.addEventListener("click", () => {
+      videoImageRef = null;
+      renderVideoImageGallery();
+    });
+    item.appendChild(img);
+    item.appendChild(removeBtn);
+    wrap.appendChild(item);
+  }
+
+  $("videoPickBtn").addEventListener("click", () => $("videoImageFile").click());
+  $("videoImageFile").addEventListener("change", async () => {
+    const file = $("videoImageFile").files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setVideoUploadStatus("Ce fichier n'est pas une image.", "err");
+      $("videoImageFile").value = "";
+      return;
+    }
+    const apiKey = $("apiKey").value.trim();
+    if (!apiKey) {
+      setVideoUploadStatus("Entre ta clé API avant d'envoyer une photo.", "err");
+      $("videoImageFile").value = "";
+      return;
+    }
+    try {
+      setVideoUploadStatus("Envoi de la photo...");
+      const url = await uploadOneFile(file, apiKey);
+      videoImageRef = { url: url, label: null };
+      renderVideoImageGallery();
+      setVideoUploadStatus("Photo envoyée et prête à l'emploi.", "ok");
+    } catch (err) {
+      setVideoUploadStatus("Erreur d'envoi : " + err.message, "err");
+    }
+    $("videoImageFile").value = "";
+  });
+  $("videoImageUrl").addEventListener("change", () => {
+    const url = $("videoImageUrl").value.trim();
+    if (!url) return;
+    videoImageRef = { url: url, label: null };
+    renderVideoImageGallery();
+    $("videoImageUrl").value = "";
+  });
+
+  $("videoGenerateBtn").addEventListener("click", async () => {
+    const apiKey = $("apiKey").value.trim();
+    const prompt = $("videoPrompt").value.trim();
+    const modelSelect = $("videoModel").value;
+    const model = modelSelect === "custom" ? $("videoModelCustom").value.trim() : modelSelect;
+
+    if (!apiKey) { setVideoStatus("Entre ta clé API.", "err"); return; }
+    if (!model) { setVideoStatus("Indique l'ID du modèle vidéo.", "err"); return; }
+    if (!prompt) { setVideoStatus("Entre un prompt.", "err"); return; }
+
+    const btn = $("videoGenerateBtn");
+    btn.disabled = true;
+    btn.classList.add("working");
+    btn.textContent = "Génération...";
+    $("videoResultWrap").style.display = "none";
+    setVideoStatus("Envoi de la tâche...");
+
+    const input = {
+      prompt: prompt,
+      duration: $("videoDuration").value,
+      resolution: $("videoResolution").value
+    };
+    if (videoImageRef) input.image_urls = [videoImageRef.url];
+
+    const body = { model: model, input: input };
+
+    let taskId = null;
+    try {
+      const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify(body)
+      });
+      const createData = await createRes.json();
+      if (createData.code !== 200) {
+        throw new Error(createData.msg || "Échec de la création de la tâche");
+      }
+      taskId = createData.data.taskId;
+      setVideoStatus("Tâche créée. En attente du résultat (une vidéo prend plusieurs minutes)...");
+
+      addHistoryEntry({
+        taskId: taskId,
+        prompt: prompt,
+        timestamp: Date.now(),
+        status: "pending",
+        resultUrl: null,
+        isVideo: true,
+        videoModel: model
+      });
+
+      // Videos take much longer than images — up to ~10 minutes.
+      const resultUrl = await pollTask(taskId, apiKey, setVideoStatus, 300);
+
+      $("videoResultPlayer").src = resultUrl;
+      $("videoDownloadLink").href = resultUrl;
+      $("videoDownloadLink").download = downloadFilename("mp4");
+      $("videoResultWrap").style.display = "block";
+      setVideoStatus("Terminé.", "ok");
+      updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      checkBalance();
+    } catch (err) {
+      if (err.message === "NETWORK_LOST") {
+        setVideoStatus("Connexion perdue. La génération continue côté serveur — retrouve-la dans l'Historique vidéo une fois l'app rouverte.", "err");
+      } else {
+        setVideoStatus("Erreur : " + err.message, "err");
+        if (taskId) updateHistoryEntry(taskId, { status: "fail" });
+      }
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("working");
+      btn.textContent = "Générer la vidéo";
+    }
+  });
+
+  $("videoCopyUrlBtn").addEventListener("click", async () => {
+    const url = $("videoDownloadLink").href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setVideoStatus("URL copiée.", "ok");
+    } catch (e) {
+      setVideoStatus("Impossible de copier automatiquement, copie l'URL manuellement.", "err");
+    }
+  });
+
   // ---------- Tabs ----------
   function switchTab(tab) {
     $("tabGeneration").style.display = tab === "generation" ? "block" : "none";
+    $("tabVideo").style.display = tab === "video" ? "block" : "none";
     $("tabCharacters").style.display = tab === "characters" ? "block" : "none";
     $("tabBtnGeneration").classList.toggle("active", tab === "generation");
+    $("tabBtnVideo").classList.toggle("active", tab === "video");
     $("tabBtnCharacters").classList.toggle("active", tab === "characters");
   }
   $("tabBtnGeneration").addEventListener("click", () => switchTab("generation"));
+  $("tabBtnVideo").addEventListener("click", () => switchTab("video"));
   $("tabBtnCharacters").addEventListener("click", () => switchTab("characters"));
 
   // init
