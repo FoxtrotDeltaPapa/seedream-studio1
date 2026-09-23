@@ -439,12 +439,17 @@
   /* characters */
   .char-item {
     display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 10px 0;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0;
     border-bottom: 1px solid var(--border);
   }
   .char-item:last-child { border-bottom: none; }
+  .char-top-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
   .char-thumb {
     width: 56px;
     height: 56px;
@@ -458,9 +463,9 @@
   .char-name {
     font-size: 14px;
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
+    white-space: normal;
+    line-height: 1.3;
   }
   .char-meta {
     font-size: 11px;
@@ -470,14 +475,15 @@
   .char-actions {
     display: flex;
     gap: 6px;
-    flex-shrink: 0;
+    width: 100%;
   }
   .char-actions button {
+    flex: 1;
     background: var(--panel-2);
     border: 1px solid var(--border);
     color: var(--text-dim);
     border-radius: 8px;
-    padding: 6px 9px;
+    padding: 8px 6px;
     font-size: 12px;
   }
 </style>
@@ -485,7 +491,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v18</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v21</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -582,11 +588,6 @@
     Cheveux
   </label>
 
-  <label class="field-label" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-    <input type="checkbox" id="consistencyToggle" style="width:auto;" checked>
-    🎯 Ajouter une instruction de fidélité (visage, corps, proportions)
-  </label>
-
   <div class="row">
     <div>
       <label class="field-label">Format</label>
@@ -639,6 +640,12 @@
     </div>
   </div>
 </section>
+
+<section>
+  <h2>Historique</h2>
+  <div id="historyListGen"></div>
+  <div class="empty-hint" id="historyEmptyHintGen">Aucune génération pour l'instant.</div>
+</section>
 </div>
 
 <div id="tabCharacters" class="tab-panel" style="display:none;">
@@ -675,6 +682,20 @@
 
     <label class="field-label">Prompt de la planche</label>
     <textarea id="charPrompt">Crée une planche de référence de ce personnage vue sous plusieurs angles : face, profil gauche, profil droit, dos, trois-quarts, en pied. Fond neutre uni, éclairage homogène, même tenue et même style sur toutes les vues, cohérence stricte du visage et des proportions.</textarea>
+
+    <label class="field-label">Cohérence du personnage (ajoutée automatiquement)</label>
+    <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+      <input type="checkbox" id="charConsistencyFace" checked style="width:auto;">
+      Visage
+    </label>
+    <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
+      <input type="checkbox" id="charConsistencyBody" checked style="width:auto;">
+      Corps
+    </label>
+    <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text); margin-bottom:12px;">
+      <input type="checkbox" id="charConsistencyHair" checked style="width:auto;">
+      Cheveux
+    </label>
 
     <div class="row" style="margin-top:12px;">
       <div>
@@ -721,13 +742,13 @@
   </div>
 </section>
 
-</div>
-
 <section>
-  <h2>Historique</h2>
-  <div id="historyList"></div>
-  <div class="empty-hint" id="historyEmptyHint">Aucune génération pour l'instant.</div>
+  <h2>Historique des planches</h2>
+  <div id="historyListChar"></div>
+  <div class="empty-hint" id="historyEmptyHintChar">Aucune planche générée pour l'instant.</div>
 </section>
+
+</div>
 
 <footer>Fichier local — usage personnel uniquement</footer>
 
@@ -960,95 +981,106 @@
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
       d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   }
+  function buildHistoryRow(entry) {
+    const item = document.createElement("div");
+    item.className = "history-item";
+
+    const thumb = document.createElement(entry.resultUrl ? "img" : "div");
+    thumb.className = "history-thumb";
+    if (entry.resultUrl) {
+      thumb.src = entry.resultUrl;
+      thumb.referrerPolicy = "no-referrer";
+    }
+
+    const info = document.createElement("div");
+    info.className = "history-info";
+    const promptEl = document.createElement("div");
+    promptEl.className = "history-prompt";
+    promptEl.textContent = entry.isCharacter
+      ? (entry.sheetType === "face" ? "🙂 " : "🧍 ") + entry.characterName
+      : (entry.prompt || "(sans prompt)");
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+    const badge = document.createElement("span");
+    badge.className = "history-badge " + entry.status;
+    badge.textContent = entry.status === "pending" ? "En attente" : entry.status === "success" ? "Terminé" : "Échec";
+    meta.appendChild(badge);
+    const dateSpan = document.createElement("span");
+    dateSpan.textContent = formatHistoryDate(entry.timestamp);
+    meta.appendChild(dateSpan);
+    info.appendChild(promptEl);
+    info.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    if (entry.status === "pending") {
+      const checkBtn = document.createElement("button");
+      checkBtn.textContent = "Vérifier";
+      checkBtn.addEventListener("click", () => checkHistoryEntry(entry.taskId));
+      actions.appendChild(checkBtn);
+    }
+    if (entry.resultUrl) {
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "Remodifier";
+      editBtn.addEventListener("click", () => {
+        referenceImages = [entry.resultUrl];
+        renderGallery();
+        $("prompt").value = entry.prompt || "";
+        if (entry.aspectRatio) $("aspectRatio").value = entry.aspectRatio;
+        if (entry.quality) $("quality").value = entry.quality;
+        if (entry.outputFormat) $("outputFormat").value = entry.outputFormat;
+        if (entry.nsfwChecker) $("nsfwChecker").value = entry.nsfwChecker;
+        setUploadStatus("Résultat repris comme nouvelle image de référence.", "ok");
+        switchTab("generation");
+        $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      actions.appendChild(editBtn);
+
+      const useBtn = document.createElement("button");
+      useBtn.textContent = "Voir";
+      useBtn.addEventListener("click", () => {
+        $("resultImg").src = entry.resultUrl;
+        $("downloadLink").href = entry.resultUrl;
+        $("downloadLink").download = downloadFilename(entry.outputFormat === "jpeg" ? "jpg" : "png");
+        $("resultWrap").style.display = "block";
+        switchTab("generation");
+        $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      actions.appendChild(useBtn);
+
+      const dlBtn = document.createElement("button");
+      dlBtn.textContent = "⬇";
+      dlBtn.title = "Télécharger";
+      dlBtn.addEventListener("click", () => {
+        triggerDownload(entry.resultUrl, entry.outputFormat === "jpeg" ? "jpg" : "png");
+      });
+      actions.appendChild(dlBtn);
+    }
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "×";
+    delBtn.addEventListener("click", () => {
+      setHistory(getHistory().filter(e => e.taskId !== entry.taskId));
+      renderHistory();
+    });
+    actions.appendChild(delBtn);
+
+    item.appendChild(thumb);
+    item.appendChild(info);
+    item.appendChild(actions);
+    return item;
+  }
+
+  function renderHistoryInto(containerId, emptyHintId, list) {
+    const wrap = $(containerId);
+    wrap.innerHTML = "";
+    $(emptyHintId).style.display = list.length ? "none" : "block";
+    list.forEach(entry => wrap.appendChild(buildHistoryRow(entry)));
+  }
+
   function renderHistory() {
     const list = getHistory();
-    const wrap = $("historyList");
-    wrap.innerHTML = "";
-    $("historyEmptyHint").style.display = list.length ? "none" : "block";
-    list.forEach(entry => {
-      const item = document.createElement("div");
-      item.className = "history-item";
-
-      const thumb = document.createElement(entry.resultUrl ? "img" : "div");
-      thumb.className = "history-thumb";
-      if (entry.resultUrl) {
-        thumb.src = entry.resultUrl;
-        thumb.referrerPolicy = "no-referrer";
-      }
-
-      const info = document.createElement("div");
-      info.className = "history-info";
-      const promptEl = document.createElement("div");
-      promptEl.className = "history-prompt";
-      promptEl.textContent = (entry.isCharacter ? "🧑 " + entry.characterName + " — " : "") + (entry.prompt || "(sans prompt)");
-      const meta = document.createElement("div");
-      meta.className = "history-meta";
-      const badge = document.createElement("span");
-      badge.className = "history-badge " + entry.status;
-      badge.textContent = entry.status === "pending" ? "En attente" : entry.status === "success" ? "Terminé" : "Échec";
-      meta.appendChild(badge);
-      const dateSpan = document.createElement("span");
-      dateSpan.textContent = formatHistoryDate(entry.timestamp);
-      meta.appendChild(dateSpan);
-      info.appendChild(promptEl);
-      info.appendChild(meta);
-
-      const actions = document.createElement("div");
-      actions.className = "history-actions";
-      if (entry.status === "pending") {
-        const checkBtn = document.createElement("button");
-        checkBtn.textContent = "Vérifier";
-        checkBtn.addEventListener("click", () => checkHistoryEntry(entry.taskId));
-        actions.appendChild(checkBtn);
-      }
-      if (entry.resultUrl) {
-        const editBtn = document.createElement("button");
-        editBtn.textContent = "Remodifier";
-        editBtn.addEventListener("click", () => {
-          referenceImages = [entry.resultUrl];
-          renderGallery();
-          $("prompt").value = entry.prompt || "";
-          if (entry.aspectRatio) $("aspectRatio").value = entry.aspectRatio;
-          if (entry.quality) $("quality").value = entry.quality;
-          if (entry.outputFormat) $("outputFormat").value = entry.outputFormat;
-          if (entry.nsfwChecker) $("nsfwChecker").value = entry.nsfwChecker;
-          setUploadStatus("Résultat repris comme nouvelle image de référence.", "ok");
-          $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-        actions.appendChild(editBtn);
-
-        const useBtn = document.createElement("button");
-        useBtn.textContent = "Voir";
-        useBtn.addEventListener("click", () => {
-          $("resultImg").src = entry.resultUrl;
-          $("downloadLink").href = entry.resultUrl;
-          $("downloadLink").download = downloadFilename(entry.outputFormat === "jpeg" ? "jpg" : "png");
-          $("resultWrap").style.display = "block";
-          $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
-        });
-        actions.appendChild(useBtn);
-
-        const dlBtn = document.createElement("button");
-        dlBtn.textContent = "⬇";
-        dlBtn.title = "Télécharger";
-        dlBtn.addEventListener("click", () => {
-          triggerDownload(entry.resultUrl, entry.outputFormat === "jpeg" ? "jpg" : "png");
-        });
-        actions.appendChild(dlBtn);
-      }
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "×";
-      delBtn.addEventListener("click", () => {
-        setHistory(getHistory().filter(e => e.taskId !== entry.taskId));
-        renderHistory();
-      });
-      actions.appendChild(delBtn);
-
-      item.appendChild(thumb);
-      item.appendChild(info);
-      item.appendChild(actions);
-      wrap.appendChild(item);
-    });
+    renderHistoryInto("historyListGen", "historyEmptyHintGen", list.filter(e => !e.isCharacter));
+    renderHistoryInto("historyListChar", "historyEmptyHintChar", list.filter(e => e.isCharacter));
   }
 
   async function checkHistoryEntry(taskId) {
@@ -1355,8 +1387,12 @@
       actions.appendChild(useBtn);
       actions.appendChild(delBtn);
 
-      item.appendChild(thumbs);
-      item.appendChild(info);
+      const topRow = document.createElement("div");
+      topRow.className = "char-top-row";
+      topRow.appendChild(thumbs);
+      topRow.appendChild(info);
+
+      item.appendChild(topRow);
       item.appendChild(actions);
       wrap.appendChild(item);
     });
@@ -1531,10 +1567,13 @@
     btn.textContent = "Génération...";
     setCharStatus("Envoi de la tâche...");
 
+    const charConsistencyText = buildConsistencyText("charConsistencyFace", "charConsistencyBody", "charConsistencyHair");
+    const charFinalPrompt = charConsistencyText ? prompt + "\n\n" + charConsistencyText : prompt;
+
     const body = {
       model: "seedream/5-pro-image-to-image",
       input: {
-        prompt: prompt,
+        prompt: charFinalPrompt,
         image_urls: charSourceImages,
         aspect_ratio: $("charAspectRatio").value,
         quality: $("charQuality").value,
@@ -1644,6 +1683,15 @@
     el.className = kind || "";
   }
 
+  function buildConsistencyText(faceId, bodyId, hairId) {
+    const parts = [];
+    if ($(faceId).checked) parts.push("les traits du visage");
+    if ($(bodyId).checked) parts.push("la morphologie du corps et les proportions");
+    if ($(hairId).checked) parts.push("la coiffure");
+    if (!parts.length) return "";
+    return "Respecte fidèlement " + parts.join(", ") + " du personnage de référence fourni. Ne les modifie pas sauf si le prompt principal le demande explicitement.";
+  }
+
   async function pollTask(taskId, apiKey, onStatus, maxAttemptsOverride) {
     const report = onStatus || setStatus;
     const maxAttempts = maxAttemptsOverride || 60; // default ~2 min at 2s interval
@@ -1701,13 +1749,7 @@
 
     const qualityUsed = $("quality").value;
     const balanceBeforeGen = currentBalanceValue;
-    const consistencyParts = [];
-    if ($("consistencyFace").checked) consistencyParts.push("les traits du visage");
-    if ($("consistencyBody").checked) consistencyParts.push("la morphologie du corps et les proportions");
-    if ($("consistencyHair").checked) consistencyParts.push("la coiffure");
-    const consistencyText = consistencyParts.length
-      ? "Respecte fidèlement " + consistencyParts.join(", ") + " du personnage de référence fourni. Ne les modifie pas sauf si le prompt principal le demande explicitement."
-      : "";
+    const consistencyText = buildConsistencyText("consistencyFace", "consistencyBody", "consistencyHair");
     const finalPrompt = consistencyText ? prompt + "\n\n" + consistencyText : prompt;
 
     const body = {
