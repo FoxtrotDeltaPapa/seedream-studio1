@@ -152,6 +152,27 @@
     padding: 6px 11px;
     font-size: 15px;
   }
+
+  .tab-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .tab-btn.active {
+    background: var(--accent);
+    color: #0d1220;
+    border-color: var(--accent);
+  }
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
   .dot.off { background: #55503f; }
 
@@ -464,7 +485,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v13</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v14</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -489,6 +510,13 @@
   </div>
 </section>
 
+<div class="tab-bar">
+  <button type="button" class="tab-btn active" id="tabBtnGeneration">Génération</button>
+  <button type="button" class="tab-btn" id="tabBtnCharacters">Personnages</button>
+</div>
+
+<div id="tabGeneration" class="tab-panel">
+
 <section>
   <h2>Prompts sauvegardés</h2>
   <div class="prompt-chips" id="promptChips"></div>
@@ -496,70 +524,6 @@
   <div class="save-prompt-row">
     <input type="text" id="promptName" placeholder="Nom du prompt à sauvegarder">
     <button id="savePromptBtn">Sauver</button>
-  </div>
-</section>
-
-<section>
-  <h2>Personnages (planches de référence)</h2>
-  <div id="characterList"></div>
-  <div class="empty-hint" id="characterEmptyHint">Aucun personnage sauvegardé pour l'instant.</div>
-  <button type="button" class="pick-btn" id="toggleCharForm">+ Nouveau personnage</button>
-
-  <div id="charForm" style="display:none; margin-top:12px;">
-    <label class="field-label">Nom du personnage</label>
-    <input type="text" id="charName" placeholder="Ex : Marc, aventurier">
-
-    <label class="field-label">Photos sources</label>
-    <button type="button" class="pick-btn" id="charPickBtn">📷 Ajouter des photos</button>
-    <input type="file" id="charImageFile" accept="*/*" multiple style="display:none;">
-    <div id="charImageGallery" class="image-gallery"></div>
-    <div id="charUploadStatus" class="upload-status"></div>
-
-    <label class="field-label">Prompt de la planche</label>
-    <textarea id="charPrompt">Crée une planche de référence de ce personnage vue sous plusieurs angles : face, profil gauche, profil droit, dos, trois-quarts, en pied. Fond neutre uni, éclairage homogène, même tenue et même style sur toutes les vues, cohérence stricte du visage et des proportions.</textarea>
-
-    <div class="row" style="margin-top:12px;">
-      <div>
-        <label class="field-label">Format</label>
-        <select id="charAspectRatio">
-          <option value="1:1">1:1</option>
-          <option value="4:3">4:3</option>
-          <option value="3:4">3:4</option>
-          <option value="16:9" selected>16:9</option>
-          <option value="9:16">9:16</option>
-          <option value="2:3">2:3</option>
-          <option value="3:2">3:2</option>
-          <option value="21:9">21:9</option>
-        </select>
-      </div>
-      <div>
-        <label class="field-label">Qualité</label>
-        <select id="charQuality">
-          <option value="basic">Basic (1K)</option>
-          <option value="high" selected>High (2K)</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:12px;">
-      <div>
-        <label class="field-label">Sortie</label>
-        <select id="charOutputFormat">
-          <option value="png" selected>PNG</option>
-          <option value="jpeg">JPEG</option>
-        </select>
-      </div>
-      <div>
-        <label class="field-label">Filtre NSFW</label>
-        <select id="charNsfwChecker">
-          <option value="true" selected>Activé</option>
-          <option value="false">Désactivé</option>
-        </select>
-      </div>
-    </div>
-
-    <button class="generate-btn" id="charGenerateBtn" style="margin-top:12px;">Générer la planche</button>
-    <div id="charStatus"></div>
   </div>
 </section>
 
@@ -656,6 +620,89 @@
     </div>
   </div>
 </section>
+</div>
+
+<div id="tabCharacters" class="tab-panel" style="display:none;">
+
+<section>
+  <h2>Personnages</h2>
+  <div id="characterList"></div>
+  <div class="empty-hint" id="characterEmptyHint">Aucun personnage sauvegardé pour l'instant.</div>
+  <button type="button" class="pick-btn" id="toggleCharForm">+ Nouveau personnage</button>
+
+  <div id="charForm" style="display:none; margin-top:12px;">
+    <label class="field-label">Nom du personnage</label>
+    <input type="text" id="charName" placeholder="Ex : Marc, aventurier (même nom pour lier les 2 planches)">
+
+    <label class="field-label">Type de planche</label>
+    <select id="charSheetType">
+      <option value="body" selected>🧍 Corps (angles complets)</option>
+      <option value="face">🙂 Visage et expressions</option>
+    </select>
+
+    <label class="field-label">Photos sources</label>
+    <button type="button" class="pick-btn" id="charPickBtn">📷 Ajouter des photos</button>
+    <input type="file" id="charImageFile" accept="*/*" multiple style="display:none;">
+    <div id="charImageGallery" class="image-gallery"></div>
+    <div id="charUploadStatus" class="upload-status"></div>
+
+    <label class="field-label">Prompts de planche favoris</label>
+    <div class="prompt-chips" id="charPromptChips"></div>
+    <div class="empty-hint" id="charPromptEmptyHint">Aucun prompt de planche sauvegardé pour l'instant.</div>
+    <div class="save-prompt-row">
+      <input type="text" id="charPromptName" placeholder="Nom du prompt à sauvegarder">
+      <button id="saveCharPromptBtn">Sauver</button>
+    </div>
+
+    <label class="field-label">Prompt de la planche</label>
+    <textarea id="charPrompt">Crée une planche de référence de ce personnage vue sous plusieurs angles : face, profil gauche, profil droit, dos, trois-quarts, en pied. Fond neutre uni, éclairage homogène, même tenue et même style sur toutes les vues, cohérence stricte du visage et des proportions.</textarea>
+
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <label class="field-label">Format</label>
+        <select id="charAspectRatio">
+          <option value="1:1">1:1</option>
+          <option value="4:3">4:3</option>
+          <option value="3:4">3:4</option>
+          <option value="16:9" selected>16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="2:3">2:3</option>
+          <option value="3:2">3:2</option>
+          <option value="21:9">21:9</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Qualité</label>
+        <select id="charQuality">
+          <option value="basic">Basic (1K)</option>
+          <option value="high" selected>High (2K)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <label class="field-label">Sortie</label>
+        <select id="charOutputFormat">
+          <option value="png" selected>PNG</option>
+          <option value="jpeg">JPEG</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Filtre NSFW</label>
+        <select id="charNsfwChecker">
+          <option value="true" selected>Activé</option>
+          <option value="false">Désactivé</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="generate-btn" id="charGenerateBtn" style="margin-top:12px;">Générer la planche</button>
+    <div id="charStatus"></div>
+  </div>
+</section>
+
+</div>
 
 <section>
   <h2>Historique</h2>
@@ -671,6 +718,7 @@
   const STORAGE_KEY = "seedream_api_key";
   const STORAGE_HISTORY = "seedream_history";
   const STORAGE_CHARACTERS = "seedream_characters";
+  const STORAGE_CHAR_PROMPTS = "seedream_char_prompts";
 
   // Chrome supports a relative sub-path in the download attribute, which
   // creates a dedicated subfolder inside the device's Downloads folder
@@ -877,20 +925,11 @@
     if (idx !== -1) {
       list[idx] = { ...list[idx], ...changes };
       // If this was a character-sheet generation and it just succeeded,
-      // add it to the character library too — works whether success came
-      // from the immediate poll or a later background re-check.
+      // merge it into the character library (body/face slot for that
+      // name) — works whether success came from the immediate poll or a
+      // later background re-check.
       if (list[idx].isCharacter && list[idx].status === "success" && !list[idx].addedToLibrary) {
-        const chars = getCharacters();
-        chars.unshift({
-          id: taskId,
-          name: list[idx].characterName,
-          resultUrl: list[idx].resultUrl,
-          sourceImages: list[idx].sourceImages || [],
-          prompt: list[idx].prompt,
-          timestamp: Date.now()
-        });
-        setCharacters(chars);
-        renderCharacters();
+        upsertCharacterSheet(list[idx].characterName, list[idx].sheetType, list[idx].resultUrl, list[idx].prompt);
         list[idx].addedToLibrary = true;
       }
       setHistory(list);
@@ -1228,10 +1267,26 @@
       const item = document.createElement("div");
       item.className = "char-item";
 
-      const thumb = document.createElement("img");
-      thumb.className = "char-thumb";
-      thumb.src = c.resultUrl;
-      thumb.referrerPolicy = "no-referrer";
+      const thumbs = document.createElement("div");
+      thumbs.style.display = "flex";
+      thumbs.style.gap = "4px";
+      thumbs.style.flexShrink = "0";
+      [["bodySheetUrl", "🧍"], ["faceSheetUrl", "🙂"]].forEach(([key, icon]) => {
+        const t = document.createElement(c[key] ? "img" : "div");
+        t.className = "char-thumb";
+        if (c[key]) {
+          t.src = c[key];
+          t.referrerPolicy = "no-referrer";
+        } else {
+          t.style.display = "flex";
+          t.style.alignItems = "center";
+          t.style.justifyContent = "center";
+          t.style.fontSize = "18px";
+          t.style.opacity = "0.3";
+          t.textContent = icon;
+        }
+        thumbs.appendChild(t);
+      });
 
       const info = document.createElement("div");
       info.className = "char-info";
@@ -1240,7 +1295,10 @@
       nameEl.textContent = c.name;
       const metaEl = document.createElement("div");
       metaEl.className = "char-meta";
-      metaEl.textContent = formatHistoryDate(c.timestamp);
+      const parts = [];
+      if (c.bodySheetUrl) parts.push("🧍 corps");
+      if (c.faceSheetUrl) parts.push("🙂 visage");
+      metaEl.textContent = parts.length ? parts.join(" · ") : "aucune planche générée";
       info.appendChild(nameEl);
       info.appendChild(metaEl);
 
@@ -1249,34 +1307,141 @@
       const useBtn = document.createElement("button");
       useBtn.textContent = "Utiliser";
       useBtn.addEventListener("click", () => {
-        if (referenceImages.length >= MAX_REFERENCE_IMAGES) {
-          setUploadStatus("Maximum " + MAX_REFERENCE_IMAGES + " images de référence.", "err");
-          return;
-        }
-        referenceImages.push(c.resultUrl);
+        const toAdd = [c.bodySheetUrl, c.faceSheetUrl].filter(Boolean);
+        if (toAdd.length === 0) return;
+        let added = 0;
+        toAdd.forEach(url => {
+          if (referenceImages.length < MAX_REFERENCE_IMAGES) {
+            referenceImages.push(url);
+            added++;
+          }
+        });
         renderGallery();
-        setUploadStatus("Planche \"" + c.name + "\" ajoutée comme référence.", "ok");
+        setUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence.", "ok");
+        switchTab("generation");
         $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
       });
       const delBtn = document.createElement("button");
       delBtn.textContent = "×";
       delBtn.addEventListener("click", () => {
-        setCharacters(getCharacters().filter(x => x.id !== c.id));
+        setCharacters(getCharacters().filter(x => x.name !== c.name));
         renderCharacters();
       });
       actions.appendChild(useBtn);
       actions.appendChild(delBtn);
 
-      item.appendChild(thumb);
+      item.appendChild(thumbs);
       item.appendChild(info);
       item.appendChild(actions);
       wrap.appendChild(item);
     });
   }
 
+  // Merge a freshly generated sheet into the record for this character
+  // name — body and face sheets share one record so "Utiliser" can add
+  // both at once.
+  function upsertCharacterSheet(name, sheetType, resultUrl, prompt) {
+    const list = getCharacters();
+    const key = (name || "").trim().toLowerCase();
+    let idx = list.findIndex(c => c.name.trim().toLowerCase() === key);
+    if (idx === -1) {
+      list.unshift({ name: (name || "").trim() });
+      idx = 0;
+    }
+    if (sheetType === "face") {
+      list[idx].faceSheetUrl = resultUrl;
+      list[idx].facePrompt = prompt;
+      list[idx].faceTimestamp = Date.now();
+    } else {
+      list[idx].bodySheetUrl = resultUrl;
+      list[idx].bodyPrompt = prompt;
+      list[idx].bodyTimestamp = Date.now();
+    }
+    setCharacters(list);
+    renderCharacters();
+  }
+
   $("toggleCharForm").addEventListener("click", () => {
     const el = $("charForm");
     el.style.display = el.style.display === "none" ? "block" : "none";
+  });
+
+  const CHAR_TEMPLATE_BODY = "Crée une planche de référence de ce personnage vue sous plusieurs angles : face, profil gauche, profil droit, dos, trois-quarts, en pied. Fond neutre uni, éclairage homogène, même tenue et même style sur toutes les vues, cohérence stricte du visage et des proportions.";
+  const CHAR_TEMPLATE_FACE = "Crée une planche d'expressions faciales de ce personnage : neutre, souriant, riant, surpris, en colère, triste, effrayé, sérieux. Même cadrage visage/buste, fond neutre uni, éclairage homogène, cohérence stricte des traits du visage et du style sur toutes les expressions.";
+
+  $("charSheetType").addEventListener("change", () => {
+    const isDefaultText = $("charPrompt").value.trim() === CHAR_TEMPLATE_BODY.trim() ||
+      $("charPrompt").value.trim() === CHAR_TEMPLATE_FACE.trim() ||
+      $("charPrompt").value.trim() === "";
+    if (isDefaultText) {
+      $("charPrompt").value = $("charSheetType").value === "face" ? CHAR_TEMPLATE_FACE : CHAR_TEMPLATE_BODY;
+    }
+  });
+
+  // ---------- Character prompt favorites ----------
+  function getCharPrompts() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_CHAR_PROMPTS) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setCharPrompts(list) {
+    localStorage.setItem(STORAGE_CHAR_PROMPTS, JSON.stringify(list));
+  }
+  function renderCharPrompts() {
+    const list = getCharPrompts();
+    const wrap = $("charPromptChips");
+    wrap.innerHTML = "";
+    $("charPromptEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const useBtn = document.createElement("button");
+      useBtn.className = "use";
+      useBtn.textContent = p.name;
+      useBtn.title = p.text;
+      useBtn.addEventListener("click", () => {
+        $("charPrompt").value = p.text;
+        if (p.sheetType) $("charSheetType").value = p.sheetType;
+        if (p.aspectRatio) $("charAspectRatio").value = p.aspectRatio;
+        if (p.quality) $("charQuality").value = p.quality;
+        if (p.outputFormat) $("charOutputFormat").value = p.outputFormat;
+        if (p.nsfwChecker) $("charNsfwChecker").value = p.nsfwChecker;
+      });
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        const l = getCharPrompts();
+        l.splice(i, 1);
+        setCharPrompts(l);
+        renderCharPrompts();
+      });
+      chip.appendChild(useBtn);
+      chip.appendChild(delBtn);
+      wrap.appendChild(chip);
+    });
+  }
+  $("saveCharPromptBtn").addEventListener("click", () => {
+    const name = $("charPromptName").value.trim();
+    const text = $("charPrompt").value.trim();
+    if (!name) { setCharStatus("Donne un nom au prompt avant de sauver.", "err"); return; }
+    if (!text) { setCharStatus("Le champ prompt est vide, rien à sauver.", "err"); return; }
+    const list = getCharPrompts();
+    list.push({
+      name,
+      text,
+      sheetType: $("charSheetType").value,
+      aspectRatio: $("charAspectRatio").value,
+      quality: $("charQuality").value,
+      outputFormat: $("charOutputFormat").value,
+      nsfwChecker: $("charNsfwChecker").value
+    });
+    setCharPrompts(list);
+    $("charPromptName").value = "";
+    renderCharPrompts();
+    setCharStatus("Prompt \"" + name + "\" sauvegardé.", "ok");
   });
 
   $("charPickBtn").addEventListener("click", () => $("charImageFile").click());
@@ -1367,6 +1532,7 @@
         nsfwChecker: $("charNsfwChecker").value,
         isCharacter: true,
         characterName: name,
+        sheetType: $("charSheetType").value,
         sourceImages: charSourceImages.slice(),
         addedToLibrary: false
       });
@@ -1578,14 +1744,26 @@
     }
   });
 
+  // ---------- Tabs ----------
+  function switchTab(tab) {
+    $("tabGeneration").style.display = tab === "generation" ? "block" : "none";
+    $("tabCharacters").style.display = tab === "characters" ? "block" : "none";
+    $("tabBtnGeneration").classList.toggle("active", tab === "generation");
+    $("tabBtnCharacters").classList.toggle("active", tab === "characters");
+  }
+  $("tabBtnGeneration").addEventListener("click", () => switchTab("generation"));
+  $("tabBtnCharacters").addEventListener("click", () => switchTab("characters"));
+
   // init
   loadKey();
   renderPrompts();
   renderHistory();
   checkAllPendingHistory();
   renderCharacters();
+  renderCharPrompts();
   checkBalance();
   updateCostEstimateDisplay();
+  switchTab("generation");
 </script>
 
 </body>
