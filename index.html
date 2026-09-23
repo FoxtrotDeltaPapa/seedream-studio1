@@ -491,7 +491,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v21</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v22</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1023,7 +1023,7 @@
       const editBtn = document.createElement("button");
       editBtn.textContent = "Remodifier";
       editBtn.addEventListener("click", () => {
-        referenceImages = [entry.resultUrl];
+        referenceImages = [{ url: entry.resultUrl, label: null }];
         renderGallery();
         $("prompt").value = entry.prompt || "";
         if (entry.aspectRatio) $("aspectRatio").value = entry.aspectRatio;
@@ -1112,7 +1112,7 @@
   }
 
   // ---------- Image upload (from phone) — multi-image gallery ----------
-  let referenceImages = []; // array of image URLs used as image_urls
+  let referenceImages = []; // array of { url, label } — label describes what the image is (e.g. a character's body/face sheet) so it can be explained to the model
   const MAX_REFERENCE_IMAGES = 10;
 
   $("pickImageBtn").addEventListener("click", () => $("imageFile").click());
@@ -1120,12 +1120,13 @@
   function renderGallery() {
     const wrap = $("imageGallery");
     wrap.innerHTML = "";
-    referenceImages.forEach((url, i) => {
+    referenceImages.forEach((ref, i) => {
       const item = document.createElement("div");
       item.className = "gallery-thumb-wrap";
       const img = document.createElement("img");
-      img.src = url;
+      img.src = ref.url;
       img.referrerPolicy = "no-referrer";
+      if (ref.label) img.title = ref.label;
       const removeBtn = document.createElement("button");
       removeBtn.textContent = "×";
       removeBtn.addEventListener("click", () => {
@@ -1134,6 +1135,18 @@
       });
       item.appendChild(img);
       item.appendChild(removeBtn);
+      if (ref.label) {
+        const cap = document.createElement("div");
+        cap.textContent = ref.label;
+        cap.style.fontSize = "9px";
+        cap.style.color = "var(--text-dim)";
+        cap.style.marginTop = "2px";
+        cap.style.maxWidth = "72px";
+        cap.style.overflow = "hidden";
+        cap.style.textOverflow = "ellipsis";
+        cap.style.whiteSpace = "nowrap";
+        item.appendChild(cap);
+      }
       wrap.appendChild(item);
     });
   }
@@ -1145,7 +1158,7 @@
       setUploadStatus("Maximum " + MAX_REFERENCE_IMAGES + " images de référence.", "err");
       return;
     }
-    referenceImages.push(url);
+    referenceImages.push({ url: url, label: null });
     $("imageUrl").value = "";
     renderGallery();
   });
@@ -1243,7 +1256,7 @@
       try {
         setUploadStatus("Envoi " + (uploaded + 1) + "/" + toUpload.length + "...");
         const url = await uploadOneFile(file, apiKey);
-        referenceImages.push(url);
+        referenceImages.push({ url: url, label: null });
         renderGallery();
         uploaded++;
       } catch (err) {
@@ -1363,12 +1376,14 @@
       const useBtn = document.createElement("button");
       useBtn.textContent = "Utiliser";
       useBtn.addEventListener("click", () => {
-        const toAdd = [c.bodySheetUrl, c.faceSheetUrl].filter(Boolean);
+        const toAdd = [];
+        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles)" });
+        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Planche visage de \"" + c.name + "\"", kind: "planche visage/expressions" });
         if (toAdd.length === 0) return;
         let added = 0;
-        toAdd.forEach(url => {
+        toAdd.forEach(ref => {
           if (referenceImages.length < MAX_REFERENCE_IMAGES) {
-            referenceImages.push(url);
+            referenceImages.push(ref);
             added++;
           }
         });
@@ -1750,13 +1765,22 @@
     const qualityUsed = $("quality").value;
     const balanceBeforeGen = currentBalanceValue;
     const consistencyText = buildConsistencyText("consistencyFace", "consistencyBody", "consistencyHair");
-    const finalPrompt = consistencyText ? prompt + "\n\n" + consistencyText : prompt;
+
+    const labeledRefs = referenceImages.filter(r => r.kind);
+    let refContextText = "";
+    if (labeledRefs.length) {
+      const lines = referenceImages.map((r, i) => r.kind ? ("Image " + (i + 1) + " : " + r.kind + ".") : null).filter(Boolean);
+      refContextText = "Images de référence fournies :\n" + lines.join("\n") +
+        "\nUtilise ces planches ensemble comme référence fidèle du même personnage (identité, visage, corps) pour générer le reste du prompt.";
+    }
+
+    const finalPrompt = [refContextText, prompt, consistencyText].filter(Boolean).join("\n\n");
 
     const body = {
       model: "seedream/5-pro-image-to-image",
       input: {
         prompt: finalPrompt,
-        image_urls: referenceImages,
+        image_urls: referenceImages.map(r => r.url),
         aspect_ratio: $("aspectRatio").value,
         quality: $("quality").value,
         output_format: $("outputFormat").value,
