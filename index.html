@@ -138,6 +138,20 @@
     align-items: center;
     gap: 6px;
   }
+  .balance-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .balance-row .icon-btn {
+    padding: 6px 11px;
+    font-size: 15px;
+  }
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
   .dot.off { background: #55503f; }
 
@@ -400,6 +414,51 @@
     padding: 6px 9px;
     font-size: 12px;
   }
+
+  /* characters */
+  .char-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .char-item:last-child { border-bottom: none; }
+  .char-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .char-info { flex: 1; min-width: 0; }
+  .char-name {
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .char-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+  .char-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .char-actions button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 8px;
+    padding: 6px 9px;
+    font-size: 12px;
+  }
 </style>
 </head>
 <body>
@@ -424,6 +483,10 @@
     <input type="checkbox" id="rememberKey" style="width:auto; margin-right:6px;">
     Se souvenir de la clé sur ce téléphone
   </label>
+  <div class="balance-row">
+    <span id="balanceText">Solde : —</span>
+    <button class="icon-btn" id="refreshBalanceBtn">↻</button>
+  </div>
 </section>
 
 <section>
@@ -433,6 +496,49 @@
   <div class="save-prompt-row">
     <input type="text" id="promptName" placeholder="Nom du prompt à sauvegarder">
     <button id="savePromptBtn">Sauver</button>
+  </div>
+</section>
+
+<section>
+  <h2>Personnages (planches de référence)</h2>
+  <div id="characterList"></div>
+  <div class="empty-hint" id="characterEmptyHint">Aucun personnage sauvegardé pour l'instant.</div>
+  <button type="button" class="pick-btn" id="toggleCharForm">+ Nouveau personnage</button>
+
+  <div id="charForm" style="display:none; margin-top:12px;">
+    <label class="field-label">Nom du personnage</label>
+    <input type="text" id="charName" placeholder="Ex : Marc, aventurier">
+
+    <label class="field-label">Photos sources</label>
+    <button type="button" class="pick-btn" id="charPickBtn">📷 Ajouter des photos</button>
+    <input type="file" id="charImageFile" accept="*/*" multiple style="display:none;">
+    <div id="charImageGallery" class="image-gallery"></div>
+    <div id="charUploadStatus" class="upload-status"></div>
+
+    <label class="field-label">Prompt de la planche</label>
+    <textarea id="charPrompt">Crée une planche de référence de ce personnage vue sous plusieurs angles : face, profil gauche, profil droit, dos, trois-quarts, en pied. Fond neutre uni, éclairage homogène, même tenue et même style sur toutes les vues, cohérence stricte du visage et des proportions.</textarea>
+
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <label class="field-label">Format</label>
+        <select id="charAspectRatio">
+          <option value="1:1">1:1</option>
+          <option value="16:9" selected>16:9</option>
+          <option value="4:3">4:3</option>
+          <option value="3:2">3:2</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Qualité</label>
+        <select id="charQuality">
+          <option value="basic">Basic (1K)</option>
+          <option value="high" selected>High (2K)</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="generate-btn" id="charGenerateBtn" style="margin-top:12px;">Générer la planche</button>
+    <div id="charStatus"></div>
   </div>
 </section>
 
@@ -517,13 +623,14 @@
     </div>
   </div>
 
+  <div class="empty-hint" id="costEstimate" style="margin-top:10px;"></div>
   <button class="generate-btn" id="generateBtn">Générer</button>
   <div id="status"></div>
 
   <div id="resultWrap">
     <img id="resultImg" alt="Résultat" referrerpolicy="no-referrer">
     <div class="result-actions">
-      <a id="downloadLink" href="#" download="seedream-result.png">Télécharger</a>
+      <a id="downloadLink" href="#" download="SeedreamStudio/seedream-result.png">Télécharger</a>
       <button id="copyUrlBtn">Copier l'URL</button>
     </div>
   </div>
@@ -542,6 +649,26 @@
   const STORAGE_PROMPTS = "seedream_saved_prompts";
   const STORAGE_KEY = "seedream_api_key";
   const STORAGE_HISTORY = "seedream_history";
+  const STORAGE_CHARACTERS = "seedream_characters";
+
+  // Chrome supports a relative sub-path in the download attribute, which
+  // creates a dedicated subfolder inside the device's Downloads folder
+  // instead of dumping every result loose at the top level.
+  function downloadFilename(ext) {
+    const d = new Date();
+    const stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0") + "_" + String(d.getHours()).padStart(2, "0") +
+      String(d.getMinutes()).padStart(2, "0") + String(d.getSeconds()).padStart(2, "0");
+    return "SeedreamStudio/seedream-" + stamp + "." + (ext || "png");
+  }
+  function triggerDownload(url, ext) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = downloadFilename(ext);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   // ---------- API key ----------
   function loadKey() {
@@ -578,6 +705,67 @@
     f.type = showing ? "password" : "text";
     $("toggleKey").textContent = showing ? "Voir" : "Cacher";
   });
+
+  // ---------- Balance ----------
+  const STORAGE_COST_ESTIMATES = "seedream_cost_estimates";
+  let currentBalanceValue = null;
+
+  function getCostEstimates() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_COST_ESTIMATES) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+  function setCostEstimates(obj) {
+    localStorage.setItem(STORAGE_COST_ESTIMATES, JSON.stringify(obj));
+  }
+  function updateCostEstimateDisplay() {
+    const el = $("costEstimate");
+    if (!el) return;
+    const quality = $("quality") ? $("quality").value : "basic";
+    const estimates = getCostEstimates();
+    const known = estimates[quality];
+    if (known) {
+      el.textContent = "Coût estimé : ~" + known + " crédit" + (known === 1 ? "" : "s") +
+        " (d'après ta dernière génération en qualité " + (quality === "high" ? "High/2K" : "Basic/1K") + ")";
+    } else {
+      el.textContent = "Coût estimé : inconnu pour l'instant — on l'apprendra après ta première génération en qualité " +
+        (quality === "high" ? "High/2K" : "Basic/1K") + ".";
+    }
+  }
+
+  async function checkBalance() {
+    const apiKey = $("apiKey").value.trim();
+    if (!apiKey) {
+      $("balanceText").textContent = "Solde : —";
+      currentBalanceValue = null;
+      return;
+    }
+    $("balanceText").textContent = "Solde : ...";
+    try {
+      const res = await fetch("https://api.kie.ai/api/v1/chat/credit", {
+        headers: {
+          "Accept": "application/json",
+          "Authorization": "Bearer " + apiKey
+        }
+      });
+      const data = await res.json();
+      if (data.code !== 200) {
+        $("balanceText").textContent = "Solde : indisponible";
+        currentBalanceValue = null;
+        return;
+      }
+      currentBalanceValue = data.data;
+      $("balanceText").textContent = "Solde : " + data.data + " crédit" + (data.data === 1 ? "" : "s");
+    } catch (e) {
+      $("balanceText").textContent = "Solde : indisponible";
+      currentBalanceValue = null;
+    }
+  }
+  $("refreshBalanceBtn").addEventListener("click", checkBalance);
+  $("apiKey").addEventListener("change", checkBalance);
+  $("quality").addEventListener("change", updateCostEstimateDisplay);
 
   // ---------- Saved prompts ----------
   function getPrompts() {
@@ -738,10 +926,19 @@
         useBtn.addEventListener("click", () => {
           $("resultImg").src = entry.resultUrl;
           $("downloadLink").href = entry.resultUrl;
+          $("downloadLink").download = downloadFilename(entry.outputFormat === "jpeg" ? "jpg" : "png");
           $("resultWrap").style.display = "block";
           $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
         });
         actions.appendChild(useBtn);
+
+        const dlBtn = document.createElement("button");
+        dlBtn.textContent = "⬇";
+        dlBtn.title = "Télécharger";
+        dlBtn.addEventListener("click", () => {
+          triggerDownload(entry.resultUrl, entry.outputFormat === "jpeg" ? "jpg" : "png");
+        });
+        actions.appendChild(dlBtn);
       }
       const delBtn = document.createElement("button");
       delBtn.textContent = "×";
@@ -941,6 +1138,210 @@
     el.className = "upload-status" + (kind ? " " + kind : "");
   }
 
+  // ---------- Characters (reference sheets — semi-LoRA library) ----------
+  let charSourceImages = [];
+
+  function getCharacters() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_CHARACTERS) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setCharacters(list) {
+    localStorage.setItem(STORAGE_CHARACTERS, JSON.stringify(list));
+  }
+  function setCharUploadStatus(msg, kind) {
+    const el = $("charUploadStatus");
+    el.textContent = msg;
+    el.className = "upload-status" + (kind ? " " + kind : "");
+  }
+  function setCharStatus(msg, kind) {
+    const el = $("charStatus");
+    el.textContent = msg;
+    el.className = kind || "";
+  }
+  function renderCharSourceGallery() {
+    const wrap = $("charImageGallery");
+    wrap.innerHTML = "";
+    charSourceImages.forEach((url, i) => {
+      const item = document.createElement("div");
+      item.className = "gallery-thumb-wrap";
+      const img = document.createElement("img");
+      img.src = url;
+      img.referrerPolicy = "no-referrer";
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        charSourceImages.splice(i, 1);
+        renderCharSourceGallery();
+      });
+      item.appendChild(img);
+      item.appendChild(removeBtn);
+      wrap.appendChild(item);
+    });
+  }
+  function renderCharacters() {
+    const list = getCharacters();
+    const wrap = $("characterList");
+    wrap.innerHTML = "";
+    $("characterEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach(c => {
+      const item = document.createElement("div");
+      item.className = "char-item";
+
+      const thumb = document.createElement("img");
+      thumb.className = "char-thumb";
+      thumb.src = c.resultUrl;
+      thumb.referrerPolicy = "no-referrer";
+
+      const info = document.createElement("div");
+      info.className = "char-info";
+      const nameEl = document.createElement("div");
+      nameEl.className = "char-name";
+      nameEl.textContent = c.name;
+      const metaEl = document.createElement("div");
+      metaEl.className = "char-meta";
+      metaEl.textContent = formatHistoryDate(c.timestamp);
+      info.appendChild(nameEl);
+      info.appendChild(metaEl);
+
+      const actions = document.createElement("div");
+      actions.className = "char-actions";
+      const useBtn = document.createElement("button");
+      useBtn.textContent = "Utiliser";
+      useBtn.addEventListener("click", () => {
+        if (referenceImages.length >= MAX_REFERENCE_IMAGES) {
+          setUploadStatus("Maximum " + MAX_REFERENCE_IMAGES + " images de référence.", "err");
+          return;
+        }
+        referenceImages.push(c.resultUrl);
+        renderGallery();
+        setUploadStatus("Planche \"" + c.name + "\" ajoutée comme référence.", "ok");
+        $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        setCharacters(getCharacters().filter(x => x.id !== c.id));
+        renderCharacters();
+      });
+      actions.appendChild(useBtn);
+      actions.appendChild(delBtn);
+
+      item.appendChild(thumb);
+      item.appendChild(info);
+      item.appendChild(actions);
+      wrap.appendChild(item);
+    });
+  }
+
+  $("toggleCharForm").addEventListener("click", () => {
+    const el = $("charForm");
+    el.style.display = el.style.display === "none" ? "block" : "none";
+  });
+
+  $("charPickBtn").addEventListener("click", () => $("charImageFile").click());
+
+  $("charImageFile").addEventListener("change", async () => {
+    const files = Array.from($("charImageFile").files || []);
+    if (!files.length) return;
+    const apiKey = $("apiKey").value.trim();
+    if (!apiKey) {
+      setCharUploadStatus("Entre ta clé API avant d'envoyer des photos.", "err");
+      $("charImageFile").value = "";
+      return;
+    }
+    let uploaded = 0;
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      try {
+        setCharUploadStatus("Envoi " + (uploaded + 1) + "/" + files.length + "...");
+        const url = await uploadOneFile(file, apiKey);
+        charSourceImages.push(url);
+        renderCharSourceGallery();
+        uploaded++;
+      } catch (err) {
+        setCharUploadStatus("Erreur d'envoi (\"" + file.name + "\") : " + err.message, "err");
+      }
+    }
+    if (uploaded > 0) setCharUploadStatus(uploaded + " photo(s) envoyée(s).", "ok");
+    $("charImageFile").value = "";
+  });
+
+  $("charGenerateBtn").addEventListener("click", async () => {
+    const apiKey = $("apiKey").value.trim();
+    const name = $("charName").value.trim();
+    const prompt = $("charPrompt").value.trim();
+
+    if (!apiKey) { setCharStatus("Entre ta clé API.", "err"); return; }
+    if (!name) { setCharStatus("Donne un nom à ce personnage.", "err"); return; }
+    if (charSourceImages.length === 0) { setCharStatus("Ajoute au moins une photo source.", "err"); return; }
+    if (!prompt) { setCharStatus("Le prompt de la planche est vide.", "err"); return; }
+
+    const btn = $("charGenerateBtn");
+    btn.disabled = true;
+    btn.classList.add("working");
+    btn.textContent = "Génération...";
+    setCharStatus("Envoi de la tâche...");
+
+    const body = {
+      model: "seedream/5-pro-image-to-image",
+      input: {
+        prompt: prompt,
+        image_urls: charSourceImages,
+        aspect_ratio: $("charAspectRatio").value,
+        quality: $("charQuality").value,
+        output_format: "png",
+        nsfw_checker: true
+      }
+    };
+
+    try {
+      const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify(body)
+      });
+      const createData = await createRes.json();
+      if (createData.code !== 200) {
+        throw new Error(createData.msg || "Échec de la création de la tâche");
+      }
+      const taskId = createData.data.taskId;
+      setCharStatus("Tâche créée. En attente du résultat...");
+
+      const resultUrl = await pollTask(taskId, apiKey, setCharStatus);
+
+      const list = getCharacters();
+      list.unshift({
+        id: taskId,
+        name: name,
+        resultUrl: resultUrl,
+        sourceImages: charSourceImages.slice(),
+        prompt: prompt,
+        timestamp: Date.now()
+      });
+      setCharacters(list);
+      renderCharacters();
+
+      setCharStatus("Planche créée et sauvegardée.", "ok");
+      checkBalance();
+      $("charName").value = "";
+      charSourceImages = [];
+      renderCharSourceGallery();
+      $("charForm").style.display = "none";
+    } catch (err) {
+      setCharStatus("Erreur : " + err.message, "err");
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("working");
+      btn.textContent = "Générer la planche";
+    }
+  });
+
   // ---------- Generation ----------
   $("togglePromptHelper").addEventListener("click", () => {
     const el = $("promptHelper");
@@ -980,7 +1381,8 @@
     el.className = kind || "";
   }
 
-  async function pollTask(taskId, apiKey) {
+  async function pollTask(taskId, apiKey, onStatus) {
+    const report = onStatus || setStatus;
     const maxAttempts = 60; // ~2 min at 2s interval
     let consecutiveNetworkErrors = 0;
     for (let i = 0; i < maxAttempts; i++) {
@@ -997,7 +1399,7 @@
         // Don't give up immediately — the generation is still running
         // server-side. Just retry on the next tick.
         consecutiveNetworkErrors++;
-        setStatus("Connexion interrompue (l'app est peut-être en arrière-plan), nouvelle tentative...", "err");
+        report("Connexion interrompue (l'app est peut-être en arrière-plan), nouvelle tentative...", "err");
         if (consecutiveNetworkErrors >= 10) {
           throw new Error("NETWORK_LOST");
         }
@@ -1007,7 +1409,7 @@
         throw new Error(data.msg || "Erreur lors de la vérification du statut");
       }
       const state = data.data.state;
-      setStatus("Statut : " + state + " (tentative " + (i + 1) + ")");
+      report("Statut : " + state + " (tentative " + (i + 1) + ")");
       if (state === "success") {
         const result = JSON.parse(data.data.resultJson);
         return result.resultUrls[0];
@@ -1033,6 +1435,9 @@
     btn.textContent = "Génération...";
     $("resultWrap").style.display = "none";
     setStatus("Envoi de la tâche...");
+
+    const qualityUsed = $("quality").value;
+    const balanceBeforeGen = currentBalanceValue;
 
     const body = {
       model: "seedream/5-pro-image-to-image",
@@ -1079,9 +1484,20 @@
 
       $("resultImg").src = resultUrl;
       $("downloadLink").href = resultUrl;
+      $("downloadLink").download = downloadFilename($("outputFormat").value === "jpeg" ? "jpg" : "png");
       $("resultWrap").style.display = "block";
       setStatus("Terminé.", "ok");
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      await checkBalance();
+      if (balanceBeforeGen != null && currentBalanceValue != null) {
+        const used = balanceBeforeGen - currentBalanceValue;
+        if (used > 0) {
+          const estimates = getCostEstimates();
+          estimates[qualityUsed] = used;
+          setCostEstimates(estimates);
+          updateCostEstimateDisplay();
+        }
+      }
     } catch (err) {
       if (err.message === "NETWORK_LOST") {
         setStatus("Connexion perdue. La génération continue côté serveur — rouvre l'app plus tard, elle apparaîtra dans l'Historique.", "err");
@@ -1113,6 +1529,9 @@
   renderPrompts();
   renderHistory();
   checkAllPendingHistory();
+  renderCharacters();
+  checkBalance();
+  updateCostEstimateDisplay();
 </script>
 
 </body>
