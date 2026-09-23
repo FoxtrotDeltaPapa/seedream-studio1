@@ -453,6 +453,28 @@
   </div>
 
   <label class="field-label">Prompt</label>
+  <button type="button" class="pick-btn" id="togglePromptHelper" style="margin-bottom:10px;">🪄 Générateur de prompt</button>
+  <div id="promptHelper" style="display:none; margin-bottom:12px;">
+    <div class="empty-hint" style="margin-bottom:10px;">
+      Conseil ByteDance : sois précis sur le sujet, le style, l'éclairage, le cadrage et les matières/couleurs.
+      Avec plusieurs images de référence, précise laquelle utiliser pour quoi.
+    </div>
+    <label class="field-label">Changement souhaité</label>
+    <input type="text" id="phAction" placeholder="Ex : change la couleur du t-shirt en rouge">
+    <label class="field-label">Sujet principal</label>
+    <input type="text" id="phSubject" placeholder="Ex : la personne sur la photo">
+    <label class="field-label">Style visuel</label>
+    <input type="text" id="phStyle" placeholder="Ex : photoréaliste, cinématique...">
+    <label class="field-label">Éclairage / ambiance</label>
+    <input type="text" id="phLighting" placeholder="Ex : lumière dorée du coucher de soleil">
+    <label class="field-label">Cadrage / caméra</label>
+    <input type="text" id="phFraming" placeholder="Ex : plan rapproché, objectif 50mm">
+    <label class="field-label">Matières / couleurs</label>
+    <input type="text" id="phDetails" placeholder="Ex : tissu en velours bleu nuit">
+    <label class="field-label">Instructions multi-références (si plusieurs images)</label>
+    <input type="text" id="phMultiRef" placeholder="Ex : utilise la réf 1 pour la pose, réf 2 pour la couleur">
+    <button type="button" class="pick-btn" id="generatePromptBtn" style="margin-top:12px;">Insérer dans le prompt</button>
+  </div>
   <textarea id="prompt" placeholder='Ex : change text "Lite" into "Pro"'></textarea>
 
   <div class="row">
@@ -920,6 +942,38 @@
   }
 
   // ---------- Generation ----------
+  $("togglePromptHelper").addEventListener("click", () => {
+    const el = $("promptHelper");
+    el.style.display = el.style.display === "none" ? "block" : "none";
+  });
+
+  $("generatePromptBtn").addEventListener("click", () => {
+    const action = $("phAction").value.trim();
+    const subject = $("phSubject").value.trim();
+    const style = $("phStyle").value.trim();
+    const lighting = $("phLighting").value.trim();
+    const framing = $("phFraming").value.trim();
+    const details = $("phDetails").value.trim();
+    const multiRef = $("phMultiRef").value.trim();
+
+    const parts = [];
+    if (action) parts.push(action + ".");
+    if (subject) parts.push("Sujet : " + subject + ".");
+    if (style) parts.push("Style : " + style + ".");
+    if (lighting) parts.push("Éclairage/ambiance : " + lighting + ".");
+    if (framing) parts.push("Cadrage : " + framing + ".");
+    if (details) parts.push("Matières/couleurs : " + details + ".");
+    if (multiRef) parts.push(multiRef + ".");
+
+    if (parts.length === 0) {
+      setStatus("Remplis au moins un champ du générateur de prompt.", "err");
+      return;
+    }
+    $("prompt").value = parts.join(" ");
+    $("promptHelper").style.display = "none";
+    $("prompt").focus();
+  });
+
   function setStatus(msg, kind) {
     const el = $("status");
     el.textContent = msg;
