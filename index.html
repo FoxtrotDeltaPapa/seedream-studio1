@@ -523,9 +523,13 @@
         <label class="field-label">Format</label>
         <select id="charAspectRatio">
           <option value="1:1">1:1</option>
-          <option value="16:9" selected>16:9</option>
           <option value="4:3">4:3</option>
+          <option value="3:4">3:4</option>
+          <option value="16:9" selected>16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="2:3">2:3</option>
           <option value="3:2">3:2</option>
+          <option value="21:9">21:9</option>
         </select>
       </div>
       <div>
@@ -533,6 +537,23 @@
         <select id="charQuality">
           <option value="basic">Basic (1K)</option>
           <option value="high" selected>High (2K)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <div>
+        <label class="field-label">Sortie</label>
+        <select id="charOutputFormat">
+          <option value="png" selected>PNG</option>
+          <option value="jpeg">JPEG</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Filtre NSFW</label>
+        <select id="charNsfwChecker">
+          <option value="true" selected>Activé</option>
+          <option value="false">Désactivé</option>
         </select>
       </div>
     </div>
@@ -1292,8 +1313,8 @@
         image_urls: charSourceImages,
         aspect_ratio: $("charAspectRatio").value,
         quality: $("charQuality").value,
-        output_format: "png",
-        nsfw_checker: true
+        output_format: $("charOutputFormat").value,
+        nsfw_checker: $("charNsfwChecker").value === "true"
       }
     };
 
