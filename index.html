@@ -436,7 +436,7 @@
   </div>
 </section>
 
-<section>
+<section id="generationSection">
   <h2>Génération</h2>
 
   <label class="field-label">Images de référence (jusqu'à 10)</label>
@@ -582,6 +582,10 @@
       useBtn.title = p.text;
       useBtn.addEventListener("click", () => {
         $("prompt").value = p.text;
+        if (p.aspectRatio) $("aspectRatio").value = p.aspectRatio;
+        if (p.quality) $("quality").value = p.quality;
+        if (p.outputFormat) $("outputFormat").value = p.outputFormat;
+        if (p.nsfwChecker) $("nsfwChecker").value = p.nsfwChecker;
         $("prompt").focus();
       });
       const delBtn = document.createElement("button");
@@ -604,11 +608,18 @@
     if (!name) { setStatus("Donne un nom au prompt avant de sauver.", "err"); return; }
     if (!text) { setStatus("Le champ prompt est vide, rien à sauver.", "err"); return; }
     const list = getPrompts();
-    list.push({ name, text });
+    list.push({
+      name,
+      text,
+      aspectRatio: $("aspectRatio").value,
+      quality: $("quality").value,
+      outputFormat: $("outputFormat").value,
+      nsfwChecker: $("nsfwChecker").value
+    });
     setPrompts(list);
     $("promptName").value = "";
     renderPrompts();
-    setStatus("Prompt \"" + name + "\" sauvegardé.", "ok");
+    setStatus("Prompt \"" + name + "\" sauvegardé (avec ses réglages).", "ok");
   });
 
   // ---------- History ----------
@@ -685,6 +696,21 @@
         actions.appendChild(checkBtn);
       }
       if (entry.resultUrl) {
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "Remodifier";
+        editBtn.addEventListener("click", () => {
+          referenceImages = [entry.resultUrl];
+          renderGallery();
+          $("prompt").value = entry.prompt || "";
+          if (entry.aspectRatio) $("aspectRatio").value = entry.aspectRatio;
+          if (entry.quality) $("quality").value = entry.quality;
+          if (entry.outputFormat) $("outputFormat").value = entry.outputFormat;
+          if (entry.nsfwChecker) $("nsfwChecker").value = entry.nsfwChecker;
+          setUploadStatus("Résultat repris comme nouvelle image de référence.", "ok");
+          $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        actions.appendChild(editBtn);
+
         const useBtn = document.createElement("button");
         useBtn.textContent = "Voir";
         useBtn.addEventListener("click", () => {
@@ -988,7 +1014,11 @@
         prompt: prompt,
         timestamp: Date.now(),
         status: "pending",
-        resultUrl: null
+        resultUrl: null,
+        aspectRatio: $("aspectRatio").value,
+        quality: $("quality").value,
+        outputFormat: $("outputFormat").value,
+        nsfwChecker: $("nsfwChecker").value
       });
 
       const resultUrl = await pollTask(taskId, apiKey);
