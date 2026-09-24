@@ -477,6 +477,9 @@
     display: grid;
     grid-template-columns: 30px 30px 30px;
     grid-template-rows: 30px 30px;
+    grid-template-areas:
+      ".    up    ."
+      "left down right";
     gap: 3px;
     z-index: 2;
   }
@@ -490,10 +493,10 @@
     font-size: 13px;
     padding: 0;
   }
-  #poseDpadUp, #posePanUp { grid-column: 2; grid-row: 1; }
-  #poseDpadLeft, #posePanLeft { grid-column: 1; grid-row: 2; }
-  #poseDpadRight, #posePanRight { grid-column: 3; grid-row: 2; }
-  #poseDpadDown, #posePanDown { grid-column: 2; grid-row: 2; }
+  .pose-dpad .dpad-up { grid-area: up; }
+  .pose-dpad .dpad-left { grid-area: left; }
+  .pose-dpad .dpad-right { grid-area: right; }
+  .pose-dpad .dpad-down { grid-area: down; }
   .pose-pan-x {
     position: absolute;
     bottom: 10px;
@@ -716,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v48</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v49</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1135,22 +1138,22 @@
     <div id="poseLoading" class="empty-hint" style="padding:40px 0; text-align:center;">Chargement de la scène 3D...</div>
 
     <div class="pose-dpad pose-dpad-pan">
-      <button type="button" id="posePanUp" title="Déplacer +Y">▲</button>
-      <button type="button" id="posePanLeft" title="Déplacer -Z">◀</button>
-      <button type="button" id="posePanRight" title="Déplacer +Z">▶</button>
-      <button type="button" id="posePanDown" title="Déplacer -Y">▼</button>
+      <button type="button" class="dpad-up" id="posePanUp" title="Déplacer haut">▲</button>
+      <button type="button" class="dpad-left" id="posePanLeft" title="Déplacer gauche">◀</button>
+      <button type="button" class="dpad-right" id="posePanRight" title="Déplacer droite">▶</button>
+      <button type="button" class="dpad-down" id="posePanDown" title="Déplacer bas">▼</button>
     </div>
 
     <div class="pose-pan-x">
-      <button type="button" id="posePanXMinus" title="Déplacer -X">◀</button>
-      <button type="button" id="posePanXPlus" title="Déplacer +X">▶</button>
+      <button type="button" id="posePanXMinus" title="Reculer">◀</button>
+      <button type="button" id="posePanXPlus" title="Avancer">▶</button>
     </div>
 
     <div class="pose-dpad pose-dpad-rotate">
-      <button type="button" id="poseDpadUp" title="Tourner">▲</button>
-      <button type="button" id="poseDpadLeft" title="Tourner">◀</button>
-      <button type="button" id="poseDpadRight" title="Tourner">▶</button>
-      <button type="button" id="poseDpadDown" title="Tourner">▼</button>
+      <button type="button" class="dpad-up" id="poseDpadUp" title="Tourner">▲</button>
+      <button type="button" class="dpad-left" id="poseDpadLeft" title="Tourner">◀</button>
+      <button type="button" class="dpad-right" id="poseDpadRight" title="Tourner">▶</button>
+      <button type="button" class="dpad-down" id="poseDpadDown" title="Tourner">▼</button>
     </div>
   </div>
 
@@ -3084,11 +3087,29 @@
     poseControls.update();
   }
 
-  function poseCameraPanStep(dx, dy, dz) {
+  // Screen-relative pan: up/down/left/right as the person actually sees
+  // them on screen right now, not raw world axes — much more intuitive.
+  function poseCameraPanScreen(rightSign, upSign) {
     const step = POSE_CAMERA_DEFAULT.camZ * 0.08;
-    const delta = new THREE.Vector3(dx * step, dy * step, dz * step);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(poseCamera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(poseCamera.quaternion);
+    const delta = new THREE.Vector3()
+      .addScaledVector(right, rightSign * step)
+      .addScaledVector(up, upSign * step);
     poseCamera.position.add(delta);
     poseControls.target.add(delta);
+    poseControls.update();
+  }
+
+  // Depth: move the camera closer to / further from the current target
+  // (the target itself doesn't move — this is "forward/backward").
+  function poseCameraDollyStep(sign) {
+    const step = POSE_CAMERA_DEFAULT.camZ * 0.12;
+    const dir = new THREE.Vector3().subVectors(poseCamera.position, poseControls.target);
+    const dist = dir.length();
+    const newDist = Math.max(poseControls.minDistance, Math.min(poseControls.maxDistance, dist - sign * step));
+    dir.setLength(newDist);
+    poseCamera.position.copy(poseControls.target).add(dir);
     poseControls.update();
   }
 
@@ -3165,12 +3186,12 @@
   $("poseDpadLeft").addEventListener("click", () => poseCameraOrbitStep(-0.25, 0));
   $("poseDpadRight").addEventListener("click", () => poseCameraOrbitStep(0.25, 0));
 
-  $("posePanUp").addEventListener("click", () => poseCameraPanStep(0, 1, 0));
-  $("posePanDown").addEventListener("click", () => poseCameraPanStep(0, -1, 0));
-  $("posePanLeft").addEventListener("click", () => poseCameraPanStep(0, 0, -1));
-  $("posePanRight").addEventListener("click", () => poseCameraPanStep(0, 0, 1));
-  $("posePanXMinus").addEventListener("click", () => poseCameraPanStep(-1, 0, 0));
-  $("posePanXPlus").addEventListener("click", () => poseCameraPanStep(1, 0, 0));
+  $("posePanUp").addEventListener("click", () => poseCameraPanScreen(0, 1));
+  $("posePanDown").addEventListener("click", () => poseCameraPanScreen(0, -1));
+  $("posePanLeft").addEventListener("click", () => poseCameraPanScreen(-1, 0));
+  $("posePanRight").addEventListener("click", () => poseCameraPanScreen(1, 0));
+  $("posePanXMinus").addEventListener("click", () => poseCameraDollyStep(-1));
+  $("posePanXPlus").addEventListener("click", () => poseCameraDollyStep(1));
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
