@@ -474,25 +474,45 @@
   .pose-dpad {
     position: absolute;
     bottom: 10px;
-    right: 10px;
     display: grid;
-    grid-template-columns: 34px 34px 34px;
-    grid-template-rows: 34px 34px;
+    grid-template-columns: 30px 30px 30px;
+    grid-template-rows: 30px 30px;
     gap: 3px;
     z-index: 2;
   }
+  .pose-dpad-pan { left: 10px; }
+  .pose-dpad-rotate { right: 10px; }
   .pose-dpad button {
     background: rgba(29, 27, 22, 0.85);
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
     padding: 0;
   }
-  #poseDpadUp { grid-column: 2; grid-row: 1; }
-  #poseDpadLeft { grid-column: 1; grid-row: 2; }
-  #poseDpadRight { grid-column: 3; grid-row: 2; }
-  #poseDpadDown { grid-column: 2; grid-row: 2; }
+  #poseDpadUp, #posePanUp { grid-column: 2; grid-row: 1; }
+  #poseDpadLeft, #posePanLeft { grid-column: 1; grid-row: 2; }
+  #poseDpadRight, #posePanRight { grid-column: 3; grid-row: 2; }
+  #poseDpadDown, #posePanDown { grid-column: 2; grid-row: 2; }
+  .pose-pan-x {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 34px;
+    z-index: 2;
+  }
+  .pose-pan-x button {
+    width: 30px;
+    height: 30px;
+    background: rgba(29, 27, 22, 0.85);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 0;
+  }
   .pose-library {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -696,7 +716,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v46</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v48</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1113,11 +1133,24 @@
 
   <div id="poseCanvasWrap" class="pose-canvas-wrap pose-canvas-sticky">
     <div id="poseLoading" class="empty-hint" style="padding:40px 0; text-align:center;">Chargement de la scène 3D...</div>
-    <div class="pose-dpad">
-      <button type="button" id="poseDpadUp">▲</button>
-      <button type="button" id="poseDpadLeft">◀</button>
-      <button type="button" id="poseDpadRight">▶</button>
-      <button type="button" id="poseDpadDown">▼</button>
+
+    <div class="pose-dpad pose-dpad-pan">
+      <button type="button" id="posePanUp" title="Déplacer +Y">▲</button>
+      <button type="button" id="posePanLeft" title="Déplacer -Z">◀</button>
+      <button type="button" id="posePanRight" title="Déplacer +Z">▶</button>
+      <button type="button" id="posePanDown" title="Déplacer -Y">▼</button>
+    </div>
+
+    <div class="pose-pan-x">
+      <button type="button" id="posePanXMinus" title="Déplacer -X">◀</button>
+      <button type="button" id="posePanXPlus" title="Déplacer +X">▶</button>
+    </div>
+
+    <div class="pose-dpad pose-dpad-rotate">
+      <button type="button" id="poseDpadUp" title="Tourner">▲</button>
+      <button type="button" id="poseDpadLeft" title="Tourner">◀</button>
+      <button type="button" id="poseDpadRight" title="Tourner">▶</button>
+      <button type="button" id="poseDpadDown" title="Tourner">▼</button>
     </div>
   </div>
 
@@ -1125,6 +1158,13 @@
     <button type="button" class="pick-btn" id="poseResetBtn">↺ Réinitialiser la pose</button>
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
+
+  <div id="poseSelectedPanel" style="display:none; margin-top:14px;">
+    <label class="field-label">Articulation sélectionnée</label>
+    <div class="pose-slider-row"><label>Rotation X</label><input type="range" id="poseSelX" min="-90" max="90" value="0"><span class="pose-val" id="poseSelXVal">0°</span></div>
+    <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseSelZ" min="-90" max="90" value="0"><span class="pose-val" id="poseSelZVal">0°</span></div>
+  </div>
+  <div class="empty-hint" id="poseSelectedEmptyHint" style="margin-top:10px;">Tape un point bleu sur le mannequin pour sélectionner une articulation.</div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2878,7 +2918,6 @@
   // per-limb mapping needed — this works for any rigged model.
   let poseModel = null;
   let poseBoneList = []; // [{ bone, marker, bindQuaternion, angleX, angleZ }]
-  let poseDragState = null; // { entry, sx, sy, startX, startZ }
   const POSE_CAMERA_DEFAULT = { camY: 1.4, camZ: 4.2, targetY: 1.25 };
   let poseSpherical = null; // THREE.Spherical, set up once THREE is loaded
 
@@ -2938,6 +2977,12 @@
       entry.angleZ = 0;
       entry.bone.quaternion.copy(entry.bindQuaternion);
     });
+    if (poseSelectedEntry) {
+      $("poseSelX").value = 0;
+      $("poseSelZ").value = 0;
+      $("poseSelXVal").textContent = "0°";
+      $("poseSelZVal").textContent = "0°";
+    }
   }
 
   function loadPoseModel(scene) {
@@ -2968,10 +3013,37 @@
 
   // ---------- Pointer interaction: drag a marker to pose, drag empty
   // space to orbit the camera (OrbitControls handles that half) ----------
+  let poseSelectedEntry = null;
+
+  function selectBoneEntry(entry) {
+    if (poseSelectedEntry) poseSelectedEntry.marker.material.color.set(0x4c7cff);
+    poseSelectedEntry = entry;
+    entry.marker.material.color.set(0xffb020);
+    $("poseSelX").value = entry.angleX;
+    $("poseSelZ").value = entry.angleZ;
+    $("poseSelXVal").textContent = Math.round(entry.angleX) + "°";
+    $("poseSelZVal").textContent = Math.round(entry.angleZ) + "°";
+    $("poseSelectedPanel").style.display = "block";
+    $("poseSelectedEmptyHint").style.display = "none";
+  }
+
+  $("poseSelX").addEventListener("input", () => {
+    if (!poseSelectedEntry) return;
+    poseSelectedEntry.angleX = parseFloat($("poseSelX").value);
+    $("poseSelXVal").textContent = Math.round(poseSelectedEntry.angleX) + "°";
+    applyBoneRotation(poseSelectedEntry);
+  });
+  $("poseSelZ").addEventListener("input", () => {
+    if (!poseSelectedEntry) return;
+    poseSelectedEntry.angleZ = parseFloat($("poseSelZ").value);
+    $("poseSelZVal").textContent = Math.round(poseSelectedEntry.angleZ) + "°";
+    applyBoneRotation(poseSelectedEntry);
+  });
+
   function setupPoseInteraction(domEl) {
     const raycaster = new THREE.Raycaster();
-    raycaster.params.Points && (raycaster.params.Points.threshold = 0.05);
     const pointer = new THREE.Vector2();
+    let downX = 0, downY = 0;
 
     function pickMarker(clientX, clientY) {
       const rect = domEl.getBoundingClientRect();
@@ -2985,47 +3057,38 @@
       return poseBoneList.find(e => e.marker === hitMarker) || null;
     }
 
+    // Tap (not drag) a marker to select it — camera orbit via OrbitControls
+    // stays fully active everywhere, including on top of markers, since we
+    // only act on release if the finger barely moved (a genuine tap).
     domEl.addEventListener("pointerdown", (ev) => {
+      downX = ev.clientX;
+      downY = ev.clientY;
+    });
+    domEl.addEventListener("pointerup", (ev) => {
+      const moved = Math.hypot(ev.clientX - downX, ev.clientY - downY);
+      if (moved > 8) return; // was a drag/orbit gesture, not a tap
       const entry = pickMarker(ev.clientX, ev.clientY);
-      if (!entry) return; // let OrbitControls handle camera orbit instead
-      ev.preventDefault();
-      poseDragState = { entry, sx: ev.clientX, sy: ev.clientY, startX: entry.angleX, startZ: entry.angleZ };
-      poseControls.enabled = false;
-      entry.marker.material.color.set(0xffb020);
-      try { domEl.setPointerCapture(ev.pointerId); } catch (e) {}
+      if (entry) selectBoneEntry(entry);
     });
-
-    domEl.addEventListener("pointermove", (ev) => {
-      if (!poseDragState) return;
-      const dx = ev.clientX - poseDragState.sx;
-      const dy = ev.clientY - poseDragState.sy;
-      const sensitivity = 0.6; // degrees per pixel of drag
-      poseDragState.entry.angleX = poseDragState.startX + dy * sensitivity;
-      poseDragState.entry.angleZ = poseDragState.startZ + dx * sensitivity;
-      applyBoneRotation(poseDragState.entry);
-    });
-
-    function endDrag(ev) {
-      if (!poseDragState) return;
-      poseDragState.entry.marker.material.color.set(0x4c7cff);
-      try { domEl.releasePointerCapture(ev.pointerId); } catch (e) {}
-      poseDragState = null;
-      poseControls.enabled = true;
-    }
-    domEl.addEventListener("pointerup", endDrag);
-    domEl.addEventListener("pointercancel", endDrag);
   }
 
   function poseCameraOrbitStep(azimuthStep, polarStep) {
     if (!poseSpherical) poseSpherical = new THREE.Spherical();
-    const target = new THREE.Vector3(0, POSE_CAMERA_DEFAULT.targetY, 0);
+    const target = poseControls.target.clone();
     const offset = poseCamera.position.clone().sub(target);
     poseSpherical.setFromVector3(offset);
     poseSpherical.theta += azimuthStep;
     poseSpherical.phi = Math.max(0.15, Math.min(Math.PI - 0.15, poseSpherical.phi + polarStep));
     offset.setFromSpherical(poseSpherical);
     poseCamera.position.copy(target).add(offset);
-    poseControls.target.copy(target);
+    poseControls.update();
+  }
+
+  function poseCameraPanStep(dx, dy, dz) {
+    const step = POSE_CAMERA_DEFAULT.camZ * 0.08;
+    const delta = new THREE.Vector3(dx * step, dy * step, dz * step);
+    poseCamera.position.add(delta);
+    poseControls.target.add(delta);
     poseControls.update();
   }
 
@@ -3101,6 +3164,13 @@
   $("poseDpadDown").addEventListener("click", () => poseCameraOrbitStep(0, 0.2));
   $("poseDpadLeft").addEventListener("click", () => poseCameraOrbitStep(-0.25, 0));
   $("poseDpadRight").addEventListener("click", () => poseCameraOrbitStep(0.25, 0));
+
+  $("posePanUp").addEventListener("click", () => poseCameraPanStep(0, 1, 0));
+  $("posePanDown").addEventListener("click", () => poseCameraPanStep(0, -1, 0));
+  $("posePanLeft").addEventListener("click", () => poseCameraPanStep(0, 0, -1));
+  $("posePanRight").addEventListener("click", () => poseCameraPanStep(0, 0, 1));
+  $("posePanXMinus").addEventListener("click", () => poseCameraPanStep(-1, 0, 0));
+  $("posePanXPlus").addEventListener("click", () => poseCameraPanStep(1, 0, 0));
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
