@@ -465,6 +465,26 @@
     width: 100% !important;
     height: 100% !important;
   }
+  .pose-canvas-sticky {
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .pose-camera-views {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .pose-camera-views button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 8px;
+    padding: 8px 2px;
+    font-size: 11px;
+  }
   .pose-library {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -668,7 +688,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v37</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v38</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1083,8 +1103,17 @@
     Oriente la caméra en glissant le doigt sur la scène (pince pour zoomer). Ajuste chaque articulation avec les curseurs, puis capture la pose pour l'ajouter comme image de référence.
   </div>
 
-  <div id="poseCanvasWrap" class="pose-canvas-wrap">
+  <div id="poseCanvasWrap" class="pose-canvas-wrap pose-canvas-sticky">
     <div id="poseLoading" class="empty-hint" style="padding:40px 0; text-align:center;">Chargement de la scène 3D...</div>
+  </div>
+
+  <div class="pose-camera-views">
+    <button type="button" id="poseViewFront">Face</button>
+    <button type="button" id="poseViewBack">Dos</button>
+    <button type="button" id="poseViewLeft">Gauche</button>
+    <button type="button" id="poseViewRight">Droite</button>
+    <button type="button" id="poseViewTop">Haut</button>
+    <button type="button" id="poseViewBottom">Bas</button>
   </div>
 
   <div class="row" style="margin-top:10px;">
@@ -1094,6 +1123,14 @@
 
   <label class="field-label" style="margin-top:14px;">Bibliothèque de poses</label>
   <div id="poseLibrary" class="pose-library"></div>
+
+  <label class="field-label" style="margin-top:14px;">Poses personnalisées</label>
+  <div class="prompt-chips" id="poseFavoriteChips"></div>
+  <div class="empty-hint" id="poseFavoriteEmptyHint">Aucune pose personnalisée sauvegardée pour l'instant.</div>
+  <div class="save-prompt-row">
+    <input type="text" id="poseFavoriteName" placeholder="Nom de la pose à sauvegarder">
+    <button id="savePoseFavoriteBtn">Sauver</button>
+  </div>
 
   <label class="field-label" style="margin-top:14px;">Ajustement fin (optionnel)</label>
   <div id="poseSliders"></div>
@@ -2837,7 +2874,11 @@
       { id: "head_x", axis: "x", label: "Haut/Bas", min: -90, max: 90 },
       { id: "head_y", axis: "y", label: "Gauche/Droite", min: -150, max: 150 }
     ]},
-    { group: "Torse", joints: [
+    { group: "Abdomen", joints: [
+      { id: "abdomen_x", axis: "x", label: "Avant/Arrière", min: -50, max: 50 },
+      { id: "abdomen_y", axis: "y", label: "Rotation", min: -60, max: 60 }
+    ]},
+    { group: "Torse / Poitrine", joints: [
       { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -70, max: 70 },
       { id: "torso_y", axis: "y", label: "Rotation", min: -90, max: 90 }
     ]},
@@ -2914,54 +2955,95 @@
     const root = new THREE.Group();
     scene.add(root);
 
-    const hips = new THREE.Group();
-    hips.position.set(0, 1.05, 0);
-    root.add(hips);
-    poseJoints._hips = hips;
-
-    const torso = addBone(hips, { x: 0, y: 0, z: 0 }, 0.6, 0.17, 1, 0xcfc6b0);
-    poseJoints.torso_x = torso.pivot;
-    poseJoints.torso_y = torso.pivot;
-
-    const headPivot = new THREE.Group();
-    torso.end.add(headPivot);
-    const headMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 16, 16),
-      new THREE.MeshStandardMaterial({ color: 0xd8c9a8, roughness: 0.6 })
-    );
-    headMesh.position.set(0, 0.18, 0);
-    headPivot.add(headMesh);
-    poseJoints.head_x = headPivot;
-    poseJoints.head_y = headPivot;
-
+    const COLOR_TORSO = 0xcfc6b0;
+    const COLOR_SKIN = 0xd8c9a8;
     const COLOR_ARM_L = 0x4c7cff;   // blue
     const COLOR_ARM_R = 0xe08a3c;   // orange
     const COLOR_LEG_L = 0x4caf6b;   // green
     const COLOR_LEG_R = 0xd9c23c;   // yellow
 
-    const shoulderL = addBone(torso.end, { x: 0.3, y: -0.05, z: 0 }, 0.5, 0.09, -1, COLOR_ARM_L);
+    const hips = new THREE.Group();
+    hips.position.set(0, 1.05, 0);
+    root.add(hips);
+    poseJoints._hips = hips;
+
+    // Torso is split in two so it bends more naturally: abdomen (lower,
+    // narrower — the "waist") then chest (upper, wider — the ribcage).
+    const abdomen = addBone(hips, { x: 0, y: 0, z: 0 }, 0.26, 0.135, 1, COLOR_TORSO);
+    poseJoints.abdomen_x = abdomen.pivot;
+    poseJoints.abdomen_y = abdomen.pivot;
+
+    const chest = addBone(abdomen.end, { x: 0, y: 0, z: 0 }, 0.36, 0.175, 1, COLOR_TORSO);
+    poseJoints.torso_x = chest.pivot;
+    poseJoints.torso_y = chest.pivot;
+
+    const neck = addBone(chest.end, { x: 0, y: 0, z: 0 }, 0.12, 0.06, 1, COLOR_SKIN);
+
+    const headPivot = new THREE.Group();
+    neck.end.add(headPivot);
+    const headMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 18, 18),
+      new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
+    );
+    headMesh.scale.set(0.9, 1.22, 0.98); // oval, more human than a perfect sphere
+    headMesh.position.set(0, 0.16, 0);
+    headPivot.add(headMesh);
+    // Small dark "nose" bump on the front of the face so it's obvious which
+    // way the head (and by extension the whole pose) is facing.
+    const nose = new THREE.Mesh(
+      new THREE.ConeGeometry(0.022, 0.05, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.7 })
+    );
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 0.16, 0.145);
+    headPivot.add(nose);
+    poseJoints.head_x = headPivot;
+    poseJoints.head_y = headPivot;
+
+    function addHand(parent, sign) {
+      const hand = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 10, 10),
+        new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
+      );
+      hand.scale.set(1, 1.3, 0.7);
+      parent.add(hand);
+    }
+    function addFoot(parent) {
+      const foot = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.06, 0.22),
+        new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
+      );
+      foot.position.set(0, -0.02, 0.08);
+      parent.add(foot);
+    }
+
+    const shoulderL = addBone(chest.end, { x: 0.32, y: -0.03, z: 0 }, 0.48, 0.085, -1, COLOR_ARM_L);
     poseJoints.shoulderL_x = shoulderL.pivot;
     poseJoints.shoulderL_z = shoulderL.pivot;
-    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075, -1, COLOR_ARM_L);
+    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, 0.44, 0.07, -1, COLOR_ARM_L);
     poseJoints.elbowL_x = elbowL.pivot;
+    addHand(elbowL.end, 1);
 
-    const shoulderR = addBone(torso.end, { x: -0.3, y: -0.05, z: 0 }, 0.5, 0.09, -1, COLOR_ARM_R);
+    const shoulderR = addBone(chest.end, { x: -0.32, y: -0.03, z: 0 }, 0.48, 0.085, -1, COLOR_ARM_R);
     poseJoints.shoulderR_x = shoulderR.pivot;
     poseJoints.shoulderR_z = shoulderR.pivot;
-    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075, -1, COLOR_ARM_R);
+    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, 0.44, 0.07, -1, COLOR_ARM_R);
     poseJoints.elbowR_x = elbowR.pivot;
+    addHand(elbowR.end, -1);
 
-    const hipL = addBone(hips, { x: 0.17, y: 0, z: 0 }, 0.55, 0.11, -1, COLOR_LEG_L);
+    const hipL = addBone(hips, { x: 0.155, y: 0, z: 0 }, 0.54, 0.115, -1, COLOR_LEG_L);
     poseJoints.hipL_x = hipL.pivot;
     poseJoints.hipL_z = hipL.pivot;
-    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09, -1, COLOR_LEG_L);
+    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, 0.5, 0.085, -1, COLOR_LEG_L);
     poseJoints.kneeL_x = kneeL.pivot;
+    addFoot(kneeL.end);
 
-    const hipR = addBone(hips, { x: -0.17, y: 0, z: 0 }, 0.55, 0.11, -1, COLOR_LEG_R);
+    const hipR = addBone(hips, { x: -0.155, y: 0, z: 0 }, 0.54, 0.115, -1, COLOR_LEG_R);
     poseJoints.hipR_x = hipR.pivot;
     poseJoints.hipR_z = hipR.pivot;
-    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09, -1, COLOR_LEG_R);
+    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, 0.5, 0.085, -1, COLOR_LEG_R);
     poseJoints.kneeR_x = kneeR.pivot;
+    addFoot(kneeR.end);
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(1.4, 32),
@@ -2972,9 +3054,14 @@
     scene.add(ground);
   }
 
+  // Front/back swing on shoulders and hips felt reversed from what people
+  // expect (positive = forward); flip those specific joints only.
+  const POSE_FLIP_JOINTS = ["shoulderL_x", "shoulderR_x", "hipL_x", "hipR_x"];
+
   function setJointDegrees(id, axis, degrees) {
     const pivot = poseJoints[id];
     if (!pivot) return;
+    if (POSE_FLIP_JOINTS.includes(id)) degrees = -degrees;
     pivot.rotation[axis] = degrees * Math.PI / 180;
   }
 
@@ -3068,16 +3155,27 @@
     }}
   ];
 
-  function applyPosePreset(preset) {
+  function applyPoseValues(values) {
     POSE_JOINT_DEFS.forEach(section => {
       section.joints.forEach(j => {
         const input = $("poseSlider_" + j.id + "_" + j.axis);
         if (!input) return;
-        const val = preset.values[j.id] || 0;
+        const val = values[j.id] || 0;
         input.value = Math.max(j.min, Math.min(j.max, val));
         input.dispatchEvent(new Event("input"));
       });
     });
+  }
+
+  function captureCurrentPoseValues() {
+    const values = {};
+    POSE_JOINT_DEFS.forEach(section => {
+      section.joints.forEach(j => {
+        const input = $("poseSlider_" + j.id + "_" + j.axis);
+        if (input) values[j.id] = parseFloat(input.value) || 0;
+      });
+    });
+    return values;
   }
 
   function buildPoseLibrary() {
@@ -3091,10 +3189,61 @@
       icon.textContent = preset.icon;
       btn.appendChild(icon);
       btn.appendChild(document.createTextNode(preset.name));
-      btn.addEventListener("click", () => applyPosePreset(preset));
+      btn.addEventListener("click", () => applyPoseValues(preset.values));
       wrap.appendChild(btn);
     });
   }
+
+  // ---------- Saved custom poses ----------
+  const STORAGE_POSE_FAVORITES = "seedream_pose_favorites";
+  function getPoseFavorites() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_POSE_FAVORITES) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setPoseFavorites(list) {
+    localStorage.setItem(STORAGE_POSE_FAVORITES, JSON.stringify(list));
+  }
+  function renderPoseFavorites() {
+    const list = getPoseFavorites();
+    const wrap = $("poseFavoriteChips");
+    wrap.innerHTML = "";
+    $("poseFavoriteEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const useBtn = document.createElement("button");
+      useBtn.className = "use";
+      useBtn.textContent = p.name;
+      useBtn.addEventListener("click", () => applyPoseValues(p.values));
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        const l = getPoseFavorites();
+        l.splice(i, 1);
+        setPoseFavorites(l);
+        renderPoseFavorites();
+      });
+      chip.appendChild(useBtn);
+      chip.appendChild(delBtn);
+      wrap.appendChild(chip);
+    });
+  }
+  $("savePoseFavoriteBtn").addEventListener("click", () => {
+    const name = $("poseFavoriteName").value.trim();
+    if (!name) { $("poseStatus").textContent = "Donne un nom à la pose avant de sauver."; $("poseStatus").className = "err"; return; }
+    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
+    const list = getPoseFavorites();
+    list.push({ name, values: captureCurrentPoseValues() });
+    setPoseFavorites(list);
+    $("poseFavoriteName").value = "";
+    renderPoseFavorites();
+    $("poseStatus").textContent = "Pose \"" + name + "\" sauvegardée.";
+    $("poseStatus").className = "ok";
+  });
 
   async function initPoseEditor() {
     if (poseLoaded) return;
@@ -3145,6 +3294,7 @@
 
     buildPoseSliders();
     buildPoseLibrary();
+    renderPoseFavorites();
     poseLoaded = true;
   }
 
@@ -3155,6 +3305,19 @@
     poseControls.target.set(0, 1.0, 0);
     poseControls.update();
   });
+
+  function setPoseCameraView(x, y, z) {
+    if (!poseLoaded) return;
+    poseCamera.position.set(x, y, z);
+    poseControls.target.set(0, 1.0, 0);
+    poseControls.update();
+  }
+  $("poseViewFront").addEventListener("click", () => setPoseCameraView(0, 1.25, 3.6));
+  $("poseViewBack").addEventListener("click", () => setPoseCameraView(0, 1.25, -3.6));
+  $("poseViewLeft").addEventListener("click", () => setPoseCameraView(-3.6, 1.25, 0));
+  $("poseViewRight").addEventListener("click", () => setPoseCameraView(3.6, 1.25, 0));
+  $("poseViewTop").addEventListener("click", () => setPoseCameraView(0, 4.4, 0.01));
+  $("poseViewBottom").addEventListener("click", () => setPoseCameraView(0, -2.2, 0.01));
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
