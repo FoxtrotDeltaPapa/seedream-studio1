@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v56</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v57</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2978,11 +2978,13 @@
     { group: "Bras gauche", joints: [
       { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
       { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 170 },
+      { id: "shoulderL_y", axis: "y", label: "Rotation épaule", min: -80, max: 80 },
       { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 150 }
     ]},
     { group: "Bras droit", joints: [
       { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
       { id: "shoulderR_z", axis: "z", label: "Écarter", min: -170, max: 20 },
+      { id: "shoulderR_y", axis: "y", label: "Rotation épaule", min: -80, max: 80 },
       { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 150 }
     ]},
     { group: "Jambe gauche", joints: [
@@ -3021,27 +3023,31 @@
       return;
     }
 
-    // Two-axis joint: each axis gets its own running value, recombined
-    // into one quaternion applied on top of the bone's bind orientation —
-    // avoids the two rotations interfering with each other.
+    // Multi-axis joint: each axis keeps its own running value; all of them
+    // are recombined into one quaternion (fixed x→y→z order) applied on
+    // top of the bone's bind orientation — avoids the rotations
+    // interfering with each other.
     if (!poseBoneAngles[meta.pairKey]) poseBoneAngles[meta.pairKey] = { x: 0, y: 0, z: 0 };
     poseBoneAngles[meta.pairKey][axis] = degrees;
     const st = poseBoneAngles[meta.pairKey];
-    const qPrimary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.primaryAxis), st[meta.primaryAxis] * Math.PI / 180);
-    const qSecondary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.secondaryAxis), st[meta.secondaryAxis] * Math.PI / 180);
-    meta.bone.quaternion.copy(meta.bindQuaternion).multiply(qPrimary).multiply(qSecondary);
+    let q = new THREE.Quaternion();
+    meta.axes.forEach(ax => {
+      q.multiply(new THREE.Quaternion().setFromAxisAngle(axisVec(ax), st[ax] * Math.PI / 180));
+    });
+    meta.bone.quaternion.copy(meta.bindQuaternion).multiply(q);
   }
 
   function mapPoseJoints(root) {
     poseJointMeta = {};
     poseBoneAngles = {};
 
-    function map2Axis(idPrefix, boneKey, primaryAxis, secondaryAxis) {
+    function mapAxes(idPrefix, boneKey, axesList) {
       const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
       if (!bone) return;
       const bindQuaternion = bone.quaternion.clone();
-      poseJointMeta[idPrefix + "_" + primaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
-      poseJointMeta[idPrefix + "_" + secondaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
+      axesList.forEach(ax => {
+        poseJointMeta[idPrefix + "_" + ax] = { bone, bindQuaternion, pairKey: idPrefix, axes: axesList };
+      });
     }
     function map1Axis(id, boneKey, axis) {
       const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
@@ -3049,17 +3055,17 @@
       poseJointMeta[id] = { bone, bindQuaternion: bone.quaternion.clone(), primaryAxis: axis };
     }
 
-    map2Axis("head", "head", "x", "y");
-    map2Axis("neck", "neck", "x", "y");
-    map2Axis("abdomen", "spineLower", "x", "y");
-    map2Axis("torso", "spineUpper", "x", "y");
-    map2Axis("shoulderL", "shoulderL", "x", "z");
+    mapAxes("head", "head", ["x", "y"]);
+    mapAxes("neck", "neck", ["x", "y"]);
+    mapAxes("abdomen", "spineLower", ["x", "y"]);
+    mapAxes("torso", "spineUpper", ["x", "y"]);
+    mapAxes("shoulderL", "shoulderL", ["x", "z", "y"]);
     map1Axis("elbowL_x", "elbowL", "x");
-    map2Axis("shoulderR", "shoulderR", "x", "z");
+    mapAxes("shoulderR", "shoulderR", ["x", "z", "y"]);
     map1Axis("elbowR_x", "elbowR", "x");
-    map2Axis("hipL", "hipL", "x", "z");
+    mapAxes("hipL", "hipL", ["x", "z"]);
     map1Axis("kneeL_x", "kneeL", "x");
-    map2Axis("hipR", "hipR", "x", "z");
+    mapAxes("hipR", "hipR", ["x", "z"]);
     map1Axis("kneeR_x", "kneeR", "x");
   }
 
@@ -3102,30 +3108,59 @@
     });
   }
 
-  // Small visual dots on the main joints — reference only, not draggable.
-  const MARKER_BONE_KEYS = ["head", "neck", "spineUpper", "spineLower", "shoulderL", "elbowL", "shoulderR", "elbowR", "hipL", "kneeL", "hipR", "kneeR"];
-  let poseMarkers = [];
-
-  function buildBoneMarkers(model, markerRadius) {
-    poseMarkers = [];
-    MARKER_BONE_KEYS.forEach(key => {
-      const bone = findBoneByPrefix(model, BONE_NAME_MAP[key]);
-      if (!bone) return;
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(markerRadius, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0x4c7cff, depthTest: false, transparent: true, opacity: 0.85 })
-      );
-      marker.renderOrder = 999;
-      poseScene.add(marker);
-      poseMarkers.push({ bone, marker });
-    });
+  // Reads component j of vertex i from a buffer attribute — works whether
+  // it's a plain BufferAttribute or something without .getComponent.
+  function getAttrComponent(attr, i, j) {
+    if (typeof attr.getComponent === "function") return attr.getComponent(i, j);
+    if (attr.isInterleavedBufferAttribute && attr.data) {
+      return attr.data.array[attr.offset + i * attr.data.stride + j];
+    }
+    if (attr.array) return attr.array[i * attr.itemSize + j];
+    return 0;
   }
 
-  function updateBoneMarkers() {
-    const p = new THREE.Vector3();
-    poseMarkers.forEach(m => {
-      m.bone.getWorldPosition(p);
-      m.marker.position.copy(p);
+  // Color each limb via vertex colors (dominant bone per vertex, from the
+  // skin weights) instead of blue reference dots — this is what actually
+  // helps Seedream tell the limbs apart in the captured reference image.
+  const LIMB_COLORS = [
+    { prefixes: ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand"], color: [0.298, 0.486, 1.0] },   // blue
+    { prefixes: ["RightShoulder", "RightArm", "RightForeArm", "RightHand"], color: [0.878, 0.541, 0.235] }, // orange
+    { prefixes: ["LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase"], color: [0.298, 0.686, 0.420] },    // green
+    { prefixes: ["RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"], color: [0.851, 0.761, 0.235] } // yellow
+  ];
+  const NEUTRAL_COLOR = [0.847, 0.788, 0.659]; // skin-ish, for head/neck/torso/hips
+
+  function colorLimbsByVertex(model) {
+    model.traverse(obj => {
+      if (!obj.isSkinnedMesh || !obj.geometry || !obj.skeleton) return;
+      const geom = obj.geometry;
+      const skinIndexAttr = geom.getAttribute("skinIndex");
+      const skinWeightAttr = geom.getAttribute("skinWeight");
+      if (!skinIndexAttr || !skinWeightAttr) return;
+      const bones = obj.skeleton.bones;
+      const count = geom.getAttribute("position").count;
+      const colorArray = new Float32Array(count * 3);
+
+      // Precompute a color per bone so we don't re-check prefixes per vertex.
+      const boneColor = bones.map(b => {
+        const match = LIMB_COLORS.find(g => g.prefixes.some(p => b.name.indexOf(p) === 0));
+        return match ? match.color : NEUTRAL_COLOR;
+      });
+
+      for (let i = 0; i < count; i++) {
+        let maxW = -1, maxBoneIdx = -1;
+        for (let j = 0; j < 4; j++) {
+          const w = getAttrComponent(skinWeightAttr, i, j);
+          if (w > maxW) { maxW = w; maxBoneIdx = getAttrComponent(skinIndexAttr, i, j); }
+        }
+        const c = (maxBoneIdx >= 0 && boneColor[maxBoneIdx]) ? boneColor[maxBoneIdx] : NEUTRAL_COLOR;
+        colorArray[i * 3] = c[0];
+        colorArray[i * 3 + 1] = c[1];
+        colorArray[i * 3 + 2] = c[2];
+      }
+      geom.setAttribute("color", new THREE.BufferAttribute(colorArray, 3));
+      obj.material.vertexColors = true;
+      obj.material.needsUpdate = true;
     });
   }
 
@@ -3148,7 +3183,7 @@
             const size = frameCameraToModel(poseModel);
             mapPoseJoints(poseModel);
             buildPoseSliders();
-            buildBoneMarkers(poseModel, Math.max(size.y, size.x) * 0.02);
+            colorLimbsByVertex(poseModel);
 
             const ground = new THREE.Mesh(
               new THREE.CircleGeometry(1.4, 32),
@@ -3234,6 +3269,7 @@
     const dir = new THREE.DirectionalLight(0xffffff, 0.8);
     dir.position.set(2, 4, 3);
     poseScene.add(dir);
+    poseScene.add(dir.target);
 
     try {
       $("poseLoading").textContent = "Chargement du mannequin...";
@@ -3257,7 +3293,11 @@
     function animate() {
       poseAnimHandle = requestAnimationFrame(animate);
       poseControls.update();
-      updateBoneMarkers();
+      // Light follows the camera, so the model always looks evenly lit
+      // from the viewer's current angle instead of one fixed side.
+      dir.position.copy(poseCamera.position);
+      dir.target.position.copy(poseControls.target);
+      dir.target.updateMatrixWorld();
       poseRenderer.render(poseScene, poseCamera);
     }
     animate();
@@ -3302,18 +3342,15 @@
     $("poseStatus").textContent = "Capture et envoi en cours...";
     $("poseStatus").className = "";
     try {
-      // Hide the joint markers for the actual capture, they're a UI aid only.
-      poseMarkers.forEach(m => m.marker.visible = false);
       poseRenderer.render(poseScene, poseCamera);
       const dataUrl = poseRenderer.domElement.toDataURL("image/png");
-      poseMarkers.forEach(m => m.marker.visible = true);
 
       const url = await uploadDataUrl(dataUrl, apiKey, "pose");
       if (referenceImages.length < MAX_REFERENCE_IMAGES) {
         referenceImages.push({
           url: url,
           label: "🦴 Pose de référence (mannequin 3D)",
-          kind: "pose de référence à reproduire d'aussi près que possible (posture du mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte)"
+          kind: "pose de référence à reproduire d'aussi près que possible (mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte). Bras gauche en bleu, bras droit en orange, jambe gauche en verte, jambe droite en jaune, reste du corps neutre"
         });
         renderGallery();
       }
