@@ -465,6 +465,27 @@
     width: 100% !important;
     height: 100% !important;
   }
+  .pose-library {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .pose-library button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 4px;
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+  }
+  .pose-library button .pose-icon {
+    display: block;
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+
   .pose-joint-group {
     margin-bottom: 14px;
   }
@@ -647,7 +668,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v35</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v37</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1071,7 +1092,11 @@
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
 
-  <div id="poseSliders" style="margin-top:14px;"></div>
+  <label class="field-label" style="margin-top:14px;">Bibliothèque de poses</label>
+  <div id="poseLibrary" class="pose-library"></div>
+
+  <label class="field-label" style="margin-top:14px;">Ajustement fin (optionnel)</label>
+  <div id="poseSliders"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2848,13 +2873,13 @@
     });
   }
 
-  function addBone(parent, offset, length, radius, direction) {
+  function addBone(parent, offset, length, radius, direction, color) {
     direction = direction || -1; // -1 = hangs downward (limbs), 1 = extends upward (spine)
     const pivot = new THREE.Group();
     pivot.position.set(offset.x, offset.y, offset.z);
     parent.add(pivot);
 
-    const limbMat = new THREE.MeshStandardMaterial({ color: 0xb9b0a0, roughness: 0.65 });
+    const limbMat = new THREE.MeshStandardMaterial({ color: color || 0xb9b0a0, roughness: 0.65 });
     const topRadius = radius;
     const bottomRadius = radius * 0.78;
 
@@ -2874,7 +2899,7 @@
 
     const jointDot = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 0.55, 10, 10),
-      new THREE.MeshStandardMaterial({ color: 0x4c7cff, roughness: 0.5 })
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 })
     );
     pivot.add(jointDot);
 
@@ -2894,7 +2919,7 @@
     root.add(hips);
     poseJoints._hips = hips;
 
-    const torso = addBone(hips, { x: 0, y: 0, z: 0 }, 0.6, 0.17, 1);
+    const torso = addBone(hips, { x: 0, y: 0, z: 0 }, 0.6, 0.17, 1, 0xcfc6b0);
     poseJoints.torso_x = torso.pivot;
     poseJoints.torso_y = torso.pivot;
 
@@ -2909,28 +2934,33 @@
     poseJoints.head_x = headPivot;
     poseJoints.head_y = headPivot;
 
-    const shoulderL = addBone(torso.end, { x: 0.3, y: -0.05, z: 0 }, 0.5, 0.09);
+    const COLOR_ARM_L = 0x4c7cff;   // blue
+    const COLOR_ARM_R = 0xe08a3c;   // orange
+    const COLOR_LEG_L = 0x4caf6b;   // green
+    const COLOR_LEG_R = 0xd9c23c;   // yellow
+
+    const shoulderL = addBone(torso.end, { x: 0.3, y: -0.05, z: 0 }, 0.5, 0.09, -1, COLOR_ARM_L);
     poseJoints.shoulderL_x = shoulderL.pivot;
     poseJoints.shoulderL_z = shoulderL.pivot;
-    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075);
+    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075, -1, COLOR_ARM_L);
     poseJoints.elbowL_x = elbowL.pivot;
 
-    const shoulderR = addBone(torso.end, { x: -0.3, y: -0.05, z: 0 }, 0.5, 0.09);
+    const shoulderR = addBone(torso.end, { x: -0.3, y: -0.05, z: 0 }, 0.5, 0.09, -1, COLOR_ARM_R);
     poseJoints.shoulderR_x = shoulderR.pivot;
     poseJoints.shoulderR_z = shoulderR.pivot;
-    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075);
+    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, 0.45, 0.075, -1, COLOR_ARM_R);
     poseJoints.elbowR_x = elbowR.pivot;
 
-    const hipL = addBone(hips, { x: 0.17, y: 0, z: 0 }, 0.55, 0.11);
+    const hipL = addBone(hips, { x: 0.17, y: 0, z: 0 }, 0.55, 0.11, -1, COLOR_LEG_L);
     poseJoints.hipL_x = hipL.pivot;
     poseJoints.hipL_z = hipL.pivot;
-    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09);
+    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09, -1, COLOR_LEG_L);
     poseJoints.kneeL_x = kneeL.pivot;
 
-    const hipR = addBone(hips, { x: -0.17, y: 0, z: 0 }, 0.55, 0.11);
+    const hipR = addBone(hips, { x: -0.17, y: 0, z: 0 }, 0.55, 0.11, -1, COLOR_LEG_R);
     poseJoints.hipR_x = hipR.pivot;
     poseJoints.hipR_z = hipR.pivot;
-    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09);
+    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, 0.5, 0.09, -1, COLOR_LEG_R);
     poseJoints.kneeR_x = kneeR.pivot;
 
     const ground = new THREE.Mesh(
@@ -2993,6 +3023,79 @@
     });
   }
 
+  const POSE_PRESETS = [
+    { name: "Debout neutre", icon: "🧍", values: {} },
+    { name: "Marche", icon: "🚶", values: {
+      hipL_x: 25, kneeL_x: 10, hipR_x: -20, kneeR_x: 30,
+      shoulderL_x: -15, shoulderR_x: 15, torso_x: 5
+    }},
+    { name: "Course", icon: "🏃", values: {
+      hipL_x: 45, kneeL_x: 70, hipR_x: -35, kneeR_x: 20,
+      shoulderL_x: -40, elbowL_x: 80, shoulderR_x: 35, elbowR_x: 80, torso_x: 10
+    }},
+    { name: "Bras levés", icon: "🙌", values: {
+      shoulderL_z: 170, shoulderR_z: -170, elbowL_x: 10, elbowR_x: 10
+    }},
+    { name: "Mains sur les hanches", icon: "🧑‍🎤", values: {
+      shoulderL_x: 10, shoulderL_z: 60, elbowL_x: 100,
+      shoulderR_x: 10, shoulderR_z: -60, elbowR_x: 100
+    }},
+    { name: "Bras croisés", icon: "🙅", values: {
+      shoulderL_x: 60, shoulderL_z: 80, elbowL_x: 140,
+      shoulderR_x: 60, shoulderR_z: -80, elbowR_x: 140
+    }},
+    { name: "Salut de la main", icon: "👋", values: {
+      shoulderR_x: -150, shoulderR_z: -30, elbowR_x: 90, head_y: -10
+    }},
+    { name: "Pensif", icon: "🤔", values: {
+      shoulderR_x: -100, shoulderR_z: -20, elbowR_x: 140, head_x: -10, head_y: 15
+    }},
+    { name: "Garde de combat", icon: "🥊", values: {
+      hipL_x: 30, kneeL_x: 30, hipR_x: -20, kneeR_x: 20,
+      shoulderL_x: -30, shoulderL_z: 40, elbowL_x: 90,
+      shoulderR_x: -20, shoulderR_z: -50, elbowR_x: 100, torso_y: 20
+    }},
+    { name: "Assis", icon: "🪑", values: {
+      hipL_x: 90, kneeL_x: 90, hipR_x: 90, kneeR_x: 90, torso_x: -5
+    }},
+    { name: "Flexion biceps", icon: "💪", values: {
+      shoulderL_x: 10, shoulderL_z: 70, elbowL_x: 150,
+      shoulderR_x: 10, shoulderR_z: -70, elbowR_x: 150
+    }},
+    { name: "Étirement", icon: "🙆", values: {
+      shoulderL_x: -10, shoulderL_z: 175, shoulderR_x: -10, shoulderR_z: -175,
+      torso_x: -15, head_x: -10
+    }}
+  ];
+
+  function applyPosePreset(preset) {
+    POSE_JOINT_DEFS.forEach(section => {
+      section.joints.forEach(j => {
+        const input = $("poseSlider_" + j.id + "_" + j.axis);
+        if (!input) return;
+        const val = preset.values[j.id] || 0;
+        input.value = Math.max(j.min, Math.min(j.max, val));
+        input.dispatchEvent(new Event("input"));
+      });
+    });
+  }
+
+  function buildPoseLibrary() {
+    const wrap = $("poseLibrary");
+    wrap.innerHTML = "";
+    POSE_PRESETS.forEach(preset => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const icon = document.createElement("span");
+      icon.className = "pose-icon";
+      icon.textContent = preset.icon;
+      btn.appendChild(icon);
+      btn.appendChild(document.createTextNode(preset.name));
+      btn.addEventListener("click", () => applyPosePreset(preset));
+      wrap.appendChild(btn);
+    });
+  }
+
   async function initPoseEditor() {
     if (poseLoaded) return;
     try {
@@ -3041,6 +3144,7 @@
     animate();
 
     buildPoseSliders();
+    buildPoseLibrary();
     poseLoaded = true;
   }
 
@@ -3077,7 +3181,7 @@
         referenceImages.push({
           url: url,
           label: "🦴 Pose de référence (squelette 3D)",
-          kind: "pose de référence à reproduire d'aussi près que possible (posture du mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte)"
+          kind: "pose de référence à reproduire d'aussi près que possible (mannequin 3D schématique, à titre indicatif — ce n'est pas une contrainte stricte). Bras gauche en bleu, bras droit en orange, jambe gauche en verte, jambe droite en jaune, torse neutre"
         });
         renderGallery();
       }
