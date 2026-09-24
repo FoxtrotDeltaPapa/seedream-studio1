@@ -688,7 +688,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v42</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v43</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2956,7 +2956,7 @@
 
     if (!meta.pairKey) {
       // Single-axis joint (elbow, knee): direct axis-angle quaternion.
-      const q = new THREE.Quaternion().setFromAxisAngle(AXIS[axis], degrees * Math.PI / 180);
+      const q = new THREE.Quaternion().setFromAxisAngle(axisVec(axis), degrees * Math.PI / 180);
       meta.bone.quaternion.copy(q);
       return;
     }
@@ -2969,15 +2969,17 @@
     if (!poseBoneAngles[meta.pairKey]) poseBoneAngles[meta.pairKey] = { x: 0, y: 0, z: 0 };
     poseBoneAngles[meta.pairKey][axis] = degrees;
     const st = poseBoneAngles[meta.pairKey];
-    const qPrimary = new THREE.Quaternion().setFromAxisAngle(AXIS[meta.primaryAxis], st[meta.primaryAxis] * Math.PI / 180);
-    const qSecondary = new THREE.Quaternion().setFromAxisAngle(AXIS[meta.secondaryAxis], st[meta.secondaryAxis] * Math.PI / 180);
+    const qPrimary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.primaryAxis), st[meta.primaryAxis] * Math.PI / 180);
+    const qSecondary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.secondaryAxis), st[meta.secondaryAxis] * Math.PI / 180);
     meta.bone.quaternion.copy(qPrimary.multiply(qSecondary));
   }
-  const AXIS = {
-    x: new THREE.Vector3(1, 0, 0),
-    y: new THREE.Vector3(0, 1, 0),
-    z: new THREE.Vector3(0, 0, 1)
-  };
+  // Built lazily (only called after THREE has actually been loaded) —
+  // never construct THREE.* objects at the top level of the script.
+  function axisVec(axis) {
+    if (axis === "x") return new THREE.Vector3(1, 0, 0);
+    if (axis === "y") return new THREE.Vector3(0, 1, 0);
+    return new THREE.Vector3(0, 0, 1);
+  }
 
   function mapPoseJoints(root) {
     poseJointMeta = {};
