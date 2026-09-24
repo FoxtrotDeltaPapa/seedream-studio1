@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v55</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v56</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3006,9 +3006,14 @@
     return new THREE.Vector3(0, 0, 1);
   }
 
+  // Elbows/knees on this model bend the opposite way from what feels
+  // natural — flip just those.
+  const POSE_FLIP_JOINTS = ["elbowL_x", "elbowR_x", "kneeL_x", "kneeR_x"];
+
   function setJointDegrees(id, axis, degrees) {
     const meta = poseJointMeta[id];
     if (!meta) return;
+    if (POSE_FLIP_JOINTS.includes(id)) degrees = -degrees;
 
     if (!meta.pairKey) {
       const q = new THREE.Quaternion().setFromAxisAngle(axisVec(axis), degrees * Math.PI / 180);
