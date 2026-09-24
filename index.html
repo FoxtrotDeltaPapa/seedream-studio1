@@ -417,6 +417,33 @@
     align-items: center;
     gap: 6px;
   }
+  .progress-wrap { margin-top: 6px; }
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--panel-2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+  .progress-fill.indeterminate {
+    width: 40% !important;
+    animation: progress-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes progress-slide {
+    0% { margin-left: -40%; }
+    100% { margin-left: 100%; }
+  }
+  .progress-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
   .history-badge {
     font-size: 10px;
     padding: 2px 7px;
@@ -499,7 +526,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v27</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v28</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -915,6 +942,7 @@
   const STORAGE_CHARACTERS = "seedream_characters";
   const STORAGE_CHAR_PROMPTS = "seedream_char_prompts";
   const STORAGE_VIDEO_PROMPTS = "seedream_video_prompts";
+  const STORAGE_DURATION_ESTIMATES = "seedream_duration_estimates";
 
   // Chrome supports a relative sub-path in the download attribute, which
   // creates a dedicated subfolder inside the device's Downloads folder
@@ -1137,6 +1165,38 @@
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
       d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   }
+
+  // ---------- Learned generation durations (for the progress bar) ----------
+  function getDurationEstimates() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_DURATION_ESTIMATES) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+  function setDurationEstimates(obj) {
+    localStorage.setItem(STORAGE_DURATION_ESTIMATES, JSON.stringify(obj));
+  }
+  function learnDuration(key, seconds) {
+    const est = getDurationEstimates();
+    // Weighted average so it settles on a typical value without being
+    // thrown off too hard by one unusually slow/fast run.
+    est[key] = est[key] ? Math.round(est[key] * 0.6 + seconds * 0.4) : Math.round(seconds);
+    setDurationEstimates(est);
+  }
+  function durationKeyFor(entry) {
+    if (entry.isVideo) return "video";
+    if (entry.isCharacter) return "character";
+    return "image";
+  }
+  function formatDuration(seconds) {
+    seconds = Math.max(0, Math.round(seconds));
+    if (seconds < 60) return seconds + "s";
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m + "min" + (s ? " " + s + "s" : "");
+  }
+
   function buildHistoryRow(entry) {
     const item = document.createElement("div");
     item.className = "history-item";
@@ -1172,6 +1232,34 @@
     meta.appendChild(dateSpan);
     info.appendChild(promptEl);
     info.appendChild(meta);
+
+    if (entry.status === "pending") {
+      const elapsed = (Date.now() - entry.timestamp) / 1000;
+      const estSeconds = getDurationEstimates()[durationKeyFor(entry)];
+      const progWrap = document.createElement("div");
+      progWrap.className = "progress-wrap";
+      const track = document.createElement("div");
+      track.className = "progress-track";
+      const fill = document.createElement("div");
+      fill.className = "progress-fill";
+      const label = document.createElement("div");
+      label.className = "progress-label";
+      if (estSeconds) {
+        const pct = Math.min(96, Math.round((elapsed / estSeconds) * 100));
+        fill.style.width = pct + "%";
+        const remaining = estSeconds - elapsed;
+        label.textContent = pct + "% — " + (remaining > 3
+          ? "~" + formatDuration(remaining) + " restant(e)"
+          : "presque terminé...");
+      } else {
+        fill.classList.add("indeterminate");
+        label.textContent = "En cours depuis " + formatDuration(elapsed) + "...";
+      }
+      track.appendChild(fill);
+      progWrap.appendChild(track);
+      progWrap.appendChild(label);
+      info.appendChild(progWrap);
+    }
 
     const actions = document.createElement("div");
     actions.className = "history-actions";
@@ -1871,6 +1959,7 @@
         throw new Error(createData.msg || "Échec de la création de la tâche");
       }
       taskId = createData.data.taskId;
+      const startedAt = Date.now();
 
       // Saved to the shared Historique right away, flagged as a character
       // sheet — so it's tracked even if the app is closed or backgrounded,
@@ -1878,7 +1967,7 @@
       addHistoryEntry({
         taskId: taskId,
         prompt: prompt,
-        timestamp: Date.now(),
+        timestamp: startedAt,
         status: "pending",
         resultUrl: null,
         aspectRatio: $("charAspectRatio").value,
@@ -1911,6 +2000,7 @@
 
     pollTask(taskId, apiKey, () => {}, 180).then((resultUrl) => {
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      learnDuration("character", (Date.now() - startedAt) / 1000);
       checkBalance();
     }).catch((err) => {
       if (err.message !== "NETWORK_LOST") {
@@ -2064,11 +2154,12 @@
         throw new Error(createData.msg || "Échec de la création de la tâche");
       }
       taskId = createData.data.taskId;
+      const startedAt = Date.now();
 
       addHistoryEntry({
         taskId: taskId,
         prompt: prompt,
-        timestamp: Date.now(),
+        timestamp: startedAt,
         status: "pending",
         resultUrl: null,
         aspectRatio: $("aspectRatio").value,
@@ -2099,6 +2190,7 @@
       $("downloadLink").download = downloadFilename(outputFormatUsed === "jpeg" ? "jpg" : "png");
       $("resultWrap").style.display = "block";
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      learnDuration("image", (Date.now() - startedAt) / 1000);
       await checkBalance();
       if (balanceBeforeGen != null && currentBalanceValue != null) {
         const used = balanceBeforeGen - currentBalanceValue;
@@ -2392,11 +2484,12 @@
         throw new Error(createData.msg || "Échec de la création de la tâche");
       }
       taskId = createData.data.taskId;
+      const startedAt = Date.now();
 
       addHistoryEntry({
         taskId: taskId,
         prompt: prompt,
-        timestamp: Date.now(),
+        timestamp: startedAt,
         status: "pending",
         resultUrl: null,
         isVideo: true,
@@ -2426,6 +2519,7 @@
       $("videoDownloadLink").download = downloadFilename("mp4");
       $("videoResultWrap").style.display = "block";
       updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      learnDuration("video", (Date.now() - startedAt) / 1000);
       await checkBalance();
       if (balanceBeforeGen != null && currentBalanceValue != null) {
         const used = balanceBeforeGen - currentBalanceValue;
@@ -2492,6 +2586,13 @@
   updateCostEstimateDisplay();
   updateVideoCostEstimateDisplay();
   switchTab("generation");
+
+  // Keep progress bars moving for any generation still in flight.
+  setInterval(() => {
+    if (getHistory().some(e => e.status === "pending")) {
+      renderHistory();
+    }
+  }, 2000);
 </script>
 
 </body>
