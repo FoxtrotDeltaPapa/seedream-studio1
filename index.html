@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v58</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v59</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1163,6 +1163,24 @@
   </div>
 
   <div id="poseSliders" style="margin-top:14px;"></div>
+
+  <label class="field-label" style="margin-top:14px;">Poses sauvegardées</label>
+  <div class="prompt-chips" id="poseFavoriteChips"></div>
+  <div class="empty-hint" id="poseFavoriteEmptyHint">Aucune pose sauvegardée pour l'instant.</div>
+  <div class="save-prompt-row">
+    <input type="text" id="poseFavoriteName" placeholder="Nom de la pose à sauvegarder">
+    <button id="savePoseFavoriteBtn">Sauver</button>
+  </div>
+
+  <label class="field-label" style="margin-top:14px;">Partager cette pose</label>
+  <div class="empty-hint" style="margin-bottom:8px;">Copie ce code et envoie-le à quelqu'un — il peut le coller ci-dessous pour recharger exactement la même pose.</div>
+  <div class="row">
+    <button type="button" class="pick-btn" id="poseCopyCodeBtn">📋 Copier le code de la pose</button>
+  </div>
+  <div class="save-prompt-row" style="margin-top:8px;">
+    <input type="text" id="poseImportCode" placeholder="Coller un code de pose ici">
+    <button id="poseLoadCodeBtn">Charger</button>
+  </div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -3183,6 +3201,115 @@
     });
   }
 
+  // ---------- Shareable pose code (export/import) ----------
+  function capturePoseCode() {
+    const data = {};
+    document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
+      const v = parseFloat(input.value);
+      if (v) data[input.id.replace("poseSlider_", "")] = v; // skip zeros — compact code
+    });
+    return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  }
+  function applyPoseCode(code) {
+    let data;
+    try {
+      data = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+    } catch (e) {
+      throw new Error("Code de pose invalide.");
+    }
+    document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
+      const key = input.id.replace("poseSlider_", "");
+      input.value = data[key] || 0;
+      input.dispatchEvent(new Event("input"));
+    });
+  }
+
+  $("poseCopyCodeBtn").addEventListener("click", async () => {
+    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
+    const code = capturePoseCode();
+    try {
+      await navigator.clipboard.writeText(code);
+      $("poseStatus").textContent = "Code de pose copié dans le presse-papiers.";
+      $("poseStatus").className = "ok";
+    } catch (e) {
+      $("poseImportCode").value = code;
+      $("poseStatus").textContent = "Impossible de copier automatiquement — le code est affiché dans le champ ci-dessous, copie-le manuellement.";
+      $("poseStatus").className = "err";
+    }
+  });
+  $("poseLoadCodeBtn").addEventListener("click", () => {
+    const code = $("poseImportCode").value.trim();
+    if (!code) { $("poseStatus").textContent = "Colle un code de pose avant de charger."; $("poseStatus").className = "err"; return; }
+    try {
+      applyPoseCode(code);
+      $("poseStatus").textContent = "Pose chargée depuis le code.";
+      $("poseStatus").className = "ok";
+    } catch (e) {
+      $("poseStatus").textContent = e.message;
+      $("poseStatus").className = "err";
+    }
+  });
+
+  // ---------- Saved pose favorites (local, reusable) ----------
+  const STORAGE_POSE_FAVORITES = "seedream_pose_favorites";
+  function getPoseFavorites() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_POSE_FAVORITES) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function setPoseFavorites(list) {
+    localStorage.setItem(STORAGE_POSE_FAVORITES, JSON.stringify(list));
+  }
+  function renderPoseFavorites() {
+    const list = getPoseFavorites();
+    const wrap = $("poseFavoriteChips");
+    wrap.innerHTML = "";
+    $("poseFavoriteEmptyHint").style.display = list.length ? "none" : "block";
+    list.forEach((p, i) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const useBtn = document.createElement("button");
+      useBtn.className = "use";
+      useBtn.textContent = p.name;
+      useBtn.addEventListener("click", () => {
+        try {
+          applyPoseCode(p.code);
+          $("poseStatus").textContent = "Pose \"" + p.name + "\" appliquée.";
+          $("poseStatus").className = "ok";
+        } catch (e) {
+          $("poseStatus").textContent = e.message;
+          $("poseStatus").className = "err";
+        }
+      });
+      const delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", () => {
+        const l = getPoseFavorites();
+        l.splice(i, 1);
+        setPoseFavorites(l);
+        renderPoseFavorites();
+      });
+      chip.appendChild(useBtn);
+      chip.appendChild(delBtn);
+      wrap.appendChild(chip);
+    });
+  }
+  $("savePoseFavoriteBtn").addEventListener("click", () => {
+    const name = $("poseFavoriteName").value.trim();
+    if (!name) { $("poseStatus").textContent = "Donne un nom à la pose avant de sauver."; $("poseStatus").className = "err"; return; }
+    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
+    const list = getPoseFavorites();
+    list.push({ name, code: capturePoseCode() });
+    setPoseFavorites(list);
+    $("poseFavoriteName").value = "";
+    renderPoseFavorites();
+    $("poseStatus").textContent = "Pose \"" + name + "\" sauvegardée.";
+    $("poseStatus").className = "ok";
+  });
+
   function loadPoseModel(scene) {
     return new Promise((resolve, reject) => {
       const loader = new THREE.GLTFLoader();
@@ -3195,6 +3322,7 @@
             const size = frameCameraToModel(poseModel);
             mapPoseJoints(poseModel);
             buildPoseSliders();
+            renderPoseFavorites();
             colorLimbsByVertex(poseModel);
 
             const ground = new THREE.Mesh(
