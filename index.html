@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v59</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v60</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1162,8 +1162,6 @@
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
 
-  <div id="poseSliders" style="margin-top:14px;"></div>
-
   <label class="field-label" style="margin-top:14px;">Poses sauvegardées</label>
   <div class="prompt-chips" id="poseFavoriteChips"></div>
   <div class="empty-hint" id="poseFavoriteEmptyHint">Aucune pose sauvegardée pour l'instant.</div>
@@ -1181,6 +1179,8 @@
     <input type="text" id="poseImportCode" placeholder="Coller un code de pose ici">
     <button id="poseLoadCodeBtn">Charger</button>
   </div>
+
+  <div id="poseSliders" style="margin-top:14px;"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2980,50 +2980,50 @@
 
   const POSE_JOINT_DEFS = [
     { group: "Tête", joints: [
-      { id: "head_x", axis: "x", label: "Haut/Bas", min: -60, max: 60 },
-      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -80, max: 80 }
+      { id: "head_x", axis: "x", label: "Haut/Bas", min: -180, max: 180 },
+      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -180, max: 180 }
     ]},
     { group: "Cou", joints: [
-      { id: "neck_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
-      { id: "neck_y", axis: "y", label: "Rotation", min: -50, max: 50 }
+      { id: "neck_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "neck_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Abdomen", joints: [
-      { id: "abdomen_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
-      { id: "abdomen_y", axis: "y", label: "Rotation", min: -40, max: 40 }
+      { id: "abdomen_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "abdomen_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Torse / Poitrine", joints: [
-      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
-      { id: "torso_y", axis: "y", label: "Rotation", min: -50, max: 50 }
+      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "torso_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Bras gauche", joints: [
-      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
-      { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 170 },
+      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "shoulderL_z", axis: "z", label: "Écarter", min: -180, max: 180 },
       { id: "shoulderL_y", axis: "y", label: "Rotation épaule", min: -180, max: 180 },
-      { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 150 }
+      { id: "elbowL_x", axis: "x", label: "Coude", min: -180, max: 180 }
     ]},
     { group: "Bras droit", joints: [
-      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
-      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -170, max: 20 },
+      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -180, max: 180 },
       { id: "shoulderR_y", axis: "y", label: "Rotation épaule", min: -180, max: 180 },
-      { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 150 }
+      { id: "elbowR_x", axis: "x", label: "Coude", min: -180, max: 180 }
     ]},
     { group: "Poignet gauche", joints: [
-      { id: "wristL_x", axis: "x", label: "Angle", min: -80, max: 80 },
+      { id: "wristL_x", axis: "x", label: "Angle", min: -180, max: 180 },
       { id: "wristL_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Poignet droit", joints: [
-      { id: "wristR_x", axis: "x", label: "Angle", min: -80, max: 80 },
+      { id: "wristR_x", axis: "x", label: "Angle", min: -180, max: 180 },
       { id: "wristR_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Jambe gauche", joints: [
-      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -110, max: 110 },
-      { id: "hipL_z", axis: "z", label: "Écarter", min: -10, max: 80 },
-      { id: "kneeL_x", axis: "x", label: "Genou", min: -10, max: 140 }
+      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "hipL_z", axis: "z", label: "Écarter", min: -180, max: 180 },
+      { id: "kneeL_x", axis: "x", label: "Genou", min: -180, max: 180 }
     ]},
     { group: "Jambe droite", joints: [
-      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -110, max: 110 },
-      { id: "hipR_z", axis: "z", label: "Écarter", min: -80, max: 10 },
-      { id: "kneeR_x", axis: "x", label: "Genou", min: -10, max: 140 }
+      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "hipR_z", axis: "z", label: "Écarter", min: -180, max: 180 },
+      { id: "kneeR_x", axis: "x", label: "Genou", min: -180, max: 180 }
     ]}
   ];
 
