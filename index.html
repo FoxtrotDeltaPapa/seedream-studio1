@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v68</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v69</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3636,7 +3636,13 @@
         $("poseDetectStatus").textContent = "Aucune personne détectée sur cette photo.";
         return;
       }
-      applyLandmarksToSliders(result.landmarks[0]);
+      // MediaPipe normalizes x by width and y by height separately — on a
+      // portrait phone photo those scales differ a lot, which distorted
+      // every angle toward horizontal. Convert back to real pixels (same
+      // scale on both axes) before computing anything.
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const pixelLandmarks = result.landmarks[0].map(p => ({ x: p.x * w, y: p.y * h, z: p.z * w }));
+      applyLandmarksToSliders(pixelLandmarks);
       $("poseDetectStatus").textContent = "Pose détectée et appliquée (approximative — ajuste avec les curseurs si besoin).";
     } catch (err) {
       $("poseDetectStatus").textContent = "Erreur : " + err.message;
