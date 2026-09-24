@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v54</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v55</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1131,7 +1131,7 @@
 <section>
   <h2>🦴 Éditeur de pose 3D</h2>
   <div class="empty-hint" style="margin-bottom:10px;">
-    Tape un point sur le mannequin et fais glisser le doigt pour orienter ce membre. Glisse ailleurs sur la scène pour tourner la caméra (pince pour zoomer), ou utilise la croix directionnelle.
+    Règle chaque articulation avec les curseurs ci-dessous. Les points bleus sur le mannequin sont juste des repères visuels. Glisse sur la scène pour tourner la caméra (pince pour zoomer), ou utilise la croix directionnelle.
   </div>
 
   <div id="poseCanvasWrap" class="pose-canvas-wrap pose-canvas-sticky">
@@ -1161,6 +1161,8 @@
     <button type="button" class="pick-btn" id="poseResetBtn">↺ Réinitialiser la pose</button>
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
+
+  <div id="poseSliders" style="margin-top:14px;"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2905,15 +2907,11 @@
     });
   }
 
-  // ---------- Real rigged mannequin — direct drag-to-pose ----------
-  // This model's exported node names are generic ("n14_139" etc, no
-  // semantic bone names survived the Sketchfab export), so bones can't be
-  // reliably identified by name. Instead: every bone gets a small tappable
-  // marker positioned at its location; dragging a marker rotates that bone
-  // directly, on top of its original bind-pose orientation. No naming or
-  // per-limb mapping needed — this works for any rigged model.
+  // ---------- Real rigged mannequin — named-bone sliders ----------
+  // This model has clean, standard bone names, so each body part is
+  // reliably matched by name and controlled with dedicated sliders,
+  // composed on top of the bone's original bind-pose orientation.
   let poseModel = null;
-  let poseBoneList = []; // [{ bone, marker, bindQuaternion, angleX, angleZ }]
   const POSE_CAMERA_DEFAULT = { camY: 1.4, camZ: 4.2, targetY: 1.25 };
   let poseSpherical = null; // THREE.Spherical, set up once THREE is loaded
 
@@ -2943,20 +2941,170 @@
   }
 
   // This model has clean, standard bone names (Hips, Spine, LeftArm,
-  // RightForeArm, LeftUpLeg, etc.) — filter markers to just the main
-  // limbs by name, skipping fingers/toes entirely.
-  const MAIN_BONE_NAMES = [
-    "Hips", "Spine2", "Spine1", "Spine", "Neck", "Head",
-    "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
-    "RightShoulder", "RightArm", "RightForeArm", "RightHand",
-    "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase",
-    "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"
+  // RightForeArm, LeftUpLeg, etc.), so each slider can reliably target the
+  // right bone by name — no geometric guessing needed.
+  const BONE_NAME_MAP = {
+    head: "Head",
+    neck: "Neck",
+    spineUpper: "Spine2",   // chest — "Torse / Poitrine"
+    spineLower: "Spine",    // waist — "Abdomen"
+    shoulderL: "LeftArm",
+    elbowL: "LeftForeArm",
+    shoulderR: "RightArm",
+    elbowR: "RightForeArm",
+    hipL: "LeftUpLeg",
+    kneeL: "LeftLeg",
+    hipR: "RightUpLeg",
+    kneeR: "RightLeg"
+  };
+
+  const POSE_JOINT_DEFS = [
+    { group: "Tête", joints: [
+      { id: "head_x", axis: "x", label: "Haut/Bas", min: -60, max: 60 },
+      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -80, max: 80 }
+    ]},
+    { group: "Cou", joints: [
+      { id: "neck_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
+      { id: "neck_y", axis: "y", label: "Rotation", min: -50, max: 50 }
+    ]},
+    { group: "Abdomen", joints: [
+      { id: "abdomen_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
+      { id: "abdomen_y", axis: "y", label: "Rotation", min: -40, max: 40 }
+    ]},
+    { group: "Torse / Poitrine", joints: [
+      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -40, max: 40 },
+      { id: "torso_y", axis: "y", label: "Rotation", min: -50, max: 50 }
+    ]},
+    { group: "Bras gauche", joints: [
+      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
+      { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 170 },
+      { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 150 }
+    ]},
+    { group: "Bras droit", joints: [
+      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
+      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -170, max: 20 },
+      { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 150 }
+    ]},
+    { group: "Jambe gauche", joints: [
+      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -110, max: 110 },
+      { id: "hipL_z", axis: "z", label: "Écarter", min: -10, max: 80 },
+      { id: "kneeL_x", axis: "x", label: "Genou", min: -10, max: 140 }
+    ]},
+    { group: "Jambe droite", joints: [
+      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -110, max: 110 },
+      { id: "hipR_z", axis: "z", label: "Écarter", min: -80, max: 10 },
+      { id: "kneeR_x", axis: "x", label: "Genou", min: -10, max: 140 }
+    ]}
   ];
 
+  let poseJointMeta = {};
+  let poseBoneAngles = {};
+
+  function axisVec(axis) {
+    if (axis === "x") return new THREE.Vector3(1, 0, 0);
+    if (axis === "y") return new THREE.Vector3(0, 1, 0);
+    return new THREE.Vector3(0, 0, 1);
+  }
+
+  function setJointDegrees(id, axis, degrees) {
+    const meta = poseJointMeta[id];
+    if (!meta) return;
+
+    if (!meta.pairKey) {
+      const q = new THREE.Quaternion().setFromAxisAngle(axisVec(axis), degrees * Math.PI / 180);
+      meta.bone.quaternion.copy(meta.bindQuaternion).multiply(q);
+      return;
+    }
+
+    // Two-axis joint: each axis gets its own running value, recombined
+    // into one quaternion applied on top of the bone's bind orientation —
+    // avoids the two rotations interfering with each other.
+    if (!poseBoneAngles[meta.pairKey]) poseBoneAngles[meta.pairKey] = { x: 0, y: 0, z: 0 };
+    poseBoneAngles[meta.pairKey][axis] = degrees;
+    const st = poseBoneAngles[meta.pairKey];
+    const qPrimary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.primaryAxis), st[meta.primaryAxis] * Math.PI / 180);
+    const qSecondary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.secondaryAxis), st[meta.secondaryAxis] * Math.PI / 180);
+    meta.bone.quaternion.copy(meta.bindQuaternion).multiply(qPrimary).multiply(qSecondary);
+  }
+
+  function mapPoseJoints(root) {
+    poseJointMeta = {};
+    poseBoneAngles = {};
+
+    function map2Axis(idPrefix, boneKey, primaryAxis, secondaryAxis) {
+      const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
+      if (!bone) return;
+      const bindQuaternion = bone.quaternion.clone();
+      poseJointMeta[idPrefix + "_" + primaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
+      poseJointMeta[idPrefix + "_" + secondaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
+    }
+    function map1Axis(id, boneKey, axis) {
+      const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
+      if (!bone) return;
+      poseJointMeta[id] = { bone, bindQuaternion: bone.quaternion.clone(), primaryAxis: axis };
+    }
+
+    map2Axis("head", "head", "x", "y");
+    map2Axis("neck", "neck", "x", "y");
+    map2Axis("abdomen", "spineLower", "x", "y");
+    map2Axis("torso", "spineUpper", "x", "y");
+    map2Axis("shoulderL", "shoulderL", "x", "z");
+    map1Axis("elbowL_x", "elbowL", "x");
+    map2Axis("shoulderR", "shoulderR", "x", "z");
+    map1Axis("elbowR_x", "elbowR", "x");
+    map2Axis("hipL", "hipL", "x", "z");
+    map1Axis("kneeL_x", "kneeL", "x");
+    map2Axis("hipR", "hipR", "x", "z");
+    map1Axis("kneeR_x", "kneeR", "x");
+  }
+
+  function buildPoseSliders() {
+    const wrap = $("poseSliders");
+    wrap.innerHTML = "";
+    POSE_JOINT_DEFS.forEach(section => {
+      const groupEl = document.createElement("div");
+      groupEl.className = "pose-joint-group";
+      const title = document.createElement("div");
+      title.className = "pose-joint-title";
+      title.textContent = section.group;
+      groupEl.appendChild(title);
+
+      section.joints.forEach(j => {
+        if (!poseJointMeta[j.id]) return; // bone wasn't found on this model
+        const row = document.createElement("div");
+        row.className = "pose-slider-row";
+        const label = document.createElement("label");
+        label.textContent = j.label;
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = j.min;
+        input.max = j.max;
+        input.value = 0;
+        input.id = "poseSlider_" + j.id;
+        const val = document.createElement("span");
+        val.className = "pose-val";
+        val.textContent = "0°";
+        input.addEventListener("input", () => {
+          val.textContent = input.value + "°";
+          setJointDegrees(j.id, j.axis, parseFloat(input.value));
+        });
+        row.appendChild(label);
+        row.appendChild(input);
+        row.appendChild(val);
+        groupEl.appendChild(row);
+      });
+      if (groupEl.children.length > 1) wrap.appendChild(groupEl);
+    });
+  }
+
+  // Small visual dots on the main joints — reference only, not draggable.
+  const MARKER_BONE_KEYS = ["head", "neck", "spineUpper", "spineLower", "shoulderL", "elbowL", "shoulderR", "elbowR", "hipL", "kneeL", "hipR", "kneeR"];
+  let poseMarkers = [];
+
   function buildBoneMarkers(model, markerRadius) {
-    poseBoneList = [];
-    MAIN_BONE_NAMES.forEach(prefix => {
-      const bone = findBoneByPrefix(model, prefix);
+    poseMarkers = [];
+    MARKER_BONE_KEYS.forEach(key => {
+      const bone = findBoneByPrefix(model, BONE_NAME_MAP[key]);
       if (!bone) return;
       const marker = new THREE.Mesh(
         new THREE.SphereGeometry(markerRadius, 8, 8),
@@ -2964,35 +3112,22 @@
       );
       marker.renderOrder = 999;
       poseScene.add(marker);
-      poseBoneList.push({
-        bone,
-        marker,
-        bindQuaternion: bone.quaternion.clone(),
-        angleX: 0,
-        angleZ: 0
-      });
+      poseMarkers.push({ bone, marker });
     });
   }
 
   function updateBoneMarkers() {
     const p = new THREE.Vector3();
-    poseBoneList.forEach(entry => {
-      entry.bone.getWorldPosition(p);
-      entry.marker.position.copy(p);
+    poseMarkers.forEach(m => {
+      m.bone.getWorldPosition(p);
+      m.marker.position.copy(p);
     });
   }
 
-  function applyBoneRotation(entry) {
-    const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), entry.angleX * Math.PI / 180);
-    const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), entry.angleZ * Math.PI / 180);
-    entry.bone.quaternion.copy(entry.bindQuaternion).multiply(qX).multiply(qZ);
-  }
-
   function resetPose() {
-    poseBoneList.forEach(entry => {
-      entry.angleX = 0;
-      entry.angleZ = 0;
-      entry.bone.quaternion.copy(entry.bindQuaternion);
+    document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
+      input.value = 0;
+      input.dispatchEvent(new Event("input"));
     });
   }
 
@@ -3006,6 +3141,8 @@
             poseModel = gltf.scene;
             scene.add(poseModel);
             const size = frameCameraToModel(poseModel);
+            mapPoseJoints(poseModel);
+            buildPoseSliders();
             buildBoneMarkers(poseModel, Math.max(size.y, size.x) * 0.02);
 
             const ground = new THREE.Mesh(
@@ -3024,57 +3161,6 @@
         (err) => reject(err)
       );
     });
-  }
-
-  // ---------- Pointer interaction: drag a marker to pose, drag empty
-  // space to orbit the camera (OrbitControls handles that half) ----------
-  let poseDragState = null; // { entry, sx, sy, startX, startZ }
-
-  function setupPoseInteraction(domEl) {
-    const raycaster = new THREE.Raycaster();
-    const pointer = new THREE.Vector2();
-
-    function pickMarker(clientX, clientY) {
-      const rect = domEl.getBoundingClientRect();
-      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, poseCamera);
-      const markers = poseBoneList.map(e => e.marker);
-      const hits = raycaster.intersectObjects(markers, false);
-      if (!hits.length) return null;
-      const hitMarker = hits[0].object;
-      return poseBoneList.find(e => e.marker === hitMarker) || null;
-    }
-
-    domEl.addEventListener("pointerdown", (ev) => {
-      const entry = pickMarker(ev.clientX, ev.clientY);
-      if (!entry) return; // let OrbitControls handle camera orbit instead
-      ev.preventDefault();
-      poseDragState = { entry, sx: ev.clientX, sy: ev.clientY, startX: entry.angleX, startZ: entry.angleZ };
-      poseControls.enabled = false;
-      entry.marker.material.color.set(0xffb020);
-      try { domEl.setPointerCapture(ev.pointerId); } catch (e) {}
-    });
-
-    domEl.addEventListener("pointermove", (ev) => {
-      if (!poseDragState) return;
-      const dx = ev.clientX - poseDragState.sx;
-      const dy = ev.clientY - poseDragState.sy;
-      const sensitivity = 0.6; // degrees per pixel of drag
-      poseDragState.entry.angleX = poseDragState.startX + dy * sensitivity;
-      poseDragState.entry.angleZ = poseDragState.startZ + dx * sensitivity;
-      applyBoneRotation(poseDragState.entry);
-    });
-
-    function endDrag(ev) {
-      if (!poseDragState) return;
-      poseDragState.entry.marker.material.color.set(0x4c7cff);
-      try { domEl.releasePointerCapture(ev.pointerId); } catch (e) {}
-      poseDragState = null;
-      poseControls.enabled = true;
-    }
-    domEl.addEventListener("pointerup", endDrag);
-    domEl.addEventListener("pointercancel", endDrag);
   }
 
   function poseCameraOrbitStep(azimuthStep, polarStep) {
@@ -3163,8 +3249,6 @@
     poseControls.maxDistance = POSE_CAMERA_DEFAULT.camZ * 2.5;
     poseControls.update();
 
-    setupPoseInteraction(poseRenderer.domElement);
-
     function animate() {
       poseAnimHandle = requestAnimationFrame(animate);
       poseControls.update();
@@ -3214,10 +3298,10 @@
     $("poseStatus").className = "";
     try {
       // Hide the joint markers for the actual capture, they're a UI aid only.
-      poseBoneList.forEach(e => e.marker.visible = false);
+      poseMarkers.forEach(m => m.marker.visible = false);
       poseRenderer.render(poseScene, poseCamera);
       const dataUrl = poseRenderer.domElement.toDataURL("image/png");
-      poseBoneList.forEach(e => e.marker.visible = true);
+      poseMarkers.forEach(m => m.marker.visible = true);
 
       const url = await uploadDataUrl(dataUrl, apiKey, "pose");
       if (referenceImages.length < MAX_REFERENCE_IMAGES) {
