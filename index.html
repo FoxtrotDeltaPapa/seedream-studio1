@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v60</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v63</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -798,6 +798,8 @@
     <input type="text" id="phFraming" placeholder="Ex : plan rapproché, objectif 50mm">
     <label class="field-label">Matières / couleurs</label>
     <input type="text" id="phDetails" placeholder="Ex : tissu en velours bleu nuit">
+    <label class="field-label">Expression du visage</label>
+    <input type="text" id="phExpression" placeholder="Ex : sourire chaleureux, regard sérieux, surpris">
     <label class="field-label">Instructions multi-références (si plusieurs images)</label>
     <input type="text" id="phMultiRef" placeholder="Ex : utilise la réf 1 pour la pose, réf 2 pour la couleur">
     <button type="button" class="pick-btn" id="generatePromptBtn" style="margin-top:12px;">Insérer dans le prompt</button>
@@ -1161,6 +1163,11 @@
     <button type="button" class="pick-btn" id="poseResetBtn">↺ Réinitialiser la pose</button>
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
+
+  <label class="field-label" style="margin-top:14px;">Orientation du mannequin</label>
+  <div class="pose-slider-row"><label>Rotation X</label><input type="range" id="poseModelRotX" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotXVal">0°</span></div>
+  <div class="pose-slider-row"><label>Rotation Y</label><input type="range" id="poseModelRotY" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotYVal">0°</span></div>
+  <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseModelRotZ" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotZVal">0°</span></div>
 
   <label class="field-label" style="margin-top:14px;">Poses sauvegardées</label>
   <div class="prompt-chips" id="poseFavoriteChips"></div>
@@ -2370,6 +2377,7 @@
     const lighting = $("phLighting").value.trim();
     const framing = $("phFraming").value.trim();
     const details = $("phDetails").value.trim();
+    const expression = $("phExpression").value.trim();
     const multiRef = $("phMultiRef").value.trim();
 
     const parts = [];
@@ -2379,6 +2387,7 @@
     if (lighting) parts.push("Éclairage/ambiance : " + lighting + ".");
     if (framing) parts.push("Cadrage : " + framing + ".");
     if (details) parts.push("Matières/couleurs : " + details + ".");
+    if (expression) parts.push("Expression du visage : " + expression + ".");
     if (multiRef) parts.push(multiRef + ".");
 
     if (parts.length === 0) {
@@ -3349,7 +3358,7 @@
     const offset = poseCamera.position.clone().sub(target);
     poseSpherical.setFromVector3(offset);
     poseSpherical.theta += azimuthStep;
-    poseSpherical.phi = Math.max(0.15, Math.min(Math.PI - 0.15, poseSpherical.phi + polarStep));
+    poseSpherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, poseSpherical.phi + polarStep));
     offset.setFromSpherical(poseSpherical);
     poseCamera.position.copy(target).add(offset);
     poseControls.update();
@@ -3357,8 +3366,8 @@
 
   // Screen-relative pan: up/down/left/right as the person actually sees
   // them on screen right now, not raw world axes — much more intuitive.
-  function poseCameraPanScreen(rightSign, upSign) {
-    const step = POSE_CAMERA_DEFAULT.camZ * 0.08;
+  function poseCameraPanScreen(rightSign, upSign, factor) {
+    const step = POSE_CAMERA_DEFAULT.camZ * (factor || 0.08);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(poseCamera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(poseCamera.quaternion);
     const delta = new THREE.Vector3()
@@ -3371,8 +3380,8 @@
 
   // Depth: move the camera closer to / further from the current target
   // (the target itself doesn't move — this is "forward/backward").
-  function poseCameraDollyStep(sign) {
-    const step = POSE_CAMERA_DEFAULT.camZ * 0.12;
+  function poseCameraDollyStep(sign, factor) {
+    const step = POSE_CAMERA_DEFAULT.camZ * (factor || 0.12);
     const dir = new THREE.Vector3().subVectors(poseCamera.position, poseControls.target);
     const dist = dir.length();
     const newDist = Math.max(poseControls.minDistance, Math.min(poseControls.maxDistance, dist - sign * step));
@@ -3380,6 +3389,32 @@
     poseCamera.position.copy(poseControls.target).add(dir);
     poseControls.update();
   }
+
+  // ---------- Press-and-hold: smooth continuous camera movement ----------
+  const poseHeldActions = new Set();
+  const POSE_HOLD_ACTIONS = {
+    rotateUp: () => poseCameraOrbitStep(0, -0.022),
+    rotateDown: () => poseCameraOrbitStep(0, 0.022),
+    rotateLeft: () => poseCameraOrbitStep(-0.028, 0),
+    rotateRight: () => poseCameraOrbitStep(0.028, 0),
+    panUp: () => poseCameraPanScreen(0, 1, 0.007),
+    panDown: () => poseCameraPanScreen(0, -1, 0.007),
+    panLeft: () => poseCameraPanScreen(-1, 0, 0.007),
+    panRight: () => poseCameraPanScreen(1, 0, 0.007),
+    dollyForward: () => poseCameraDollyStep(1, 0.012),
+    dollyBackward: () => poseCameraDollyStep(-1, 0.012)
+  };
+  function bindHold(buttonId, actionKey) {
+    const el = $(buttonId);
+    const start = (ev) => { ev.preventDefault(); poseHeldActions.add(actionKey); };
+    const stop = () => poseHeldActions.delete(actionKey);
+    el.addEventListener("pointerdown", start);
+    el.addEventListener("pointerup", stop);
+    el.addEventListener("pointercancel", stop);
+    el.addEventListener("pointerleave", stop);
+  }
+  window.addEventListener("blur", () => poseHeldActions.clear());
+  document.addEventListener("visibilitychange", () => { if (document.hidden) poseHeldActions.clear(); });
 
   async function initPoseEditor() {
     if (poseLoaded) return;
@@ -3426,12 +3461,15 @@
     poseControls = new THREE.OrbitControls(poseCamera, poseRenderer.domElement);
     poseControls.target.set(0, POSE_CAMERA_DEFAULT.targetY, 0);
     poseControls.enablePan = false;
+    poseControls.minPolarAngle = 0;
+    poseControls.maxPolarAngle = Math.PI;
     poseControls.minDistance = 0.3;
     poseControls.maxDistance = POSE_CAMERA_DEFAULT.camZ * 2.5;
     poseControls.update();
 
     function animate() {
       poseAnimHandle = requestAnimationFrame(animate);
+      poseHeldActions.forEach(key => POSE_HOLD_ACTIONS[key] && POSE_HOLD_ACTIONS[key]());
       poseControls.update();
       // Light follows the camera, so the model always looks evenly lit
       // from the viewer's current angle instead of one fixed side.
@@ -3445,24 +3483,47 @@
     poseLoaded = true;
   }
 
-  $("poseResetBtn").addEventListener("click", resetPose);
+  function resetPoseWithModel() {
+    resetPose();
+    ["poseModelRotX", "poseModelRotY", "poseModelRotZ"].forEach(id => {
+      $(id).value = 0;
+      $(id + "Val").textContent = "0°";
+    });
+    if (poseModel) poseModel.rotation.set(0, 0, 0);
+  }
+  $("poseResetBtn").addEventListener("click", resetPoseWithModel);
   $("poseCameraResetBtn").addEventListener("click", () => {
     if (!poseLoaded) return;
     poseCamera.position.set(0, POSE_CAMERA_DEFAULT.camY, POSE_CAMERA_DEFAULT.camZ);
     poseControls.target.set(0, POSE_CAMERA_DEFAULT.targetY, 0);
     poseControls.update();
   });
-  $("poseDpadUp").addEventListener("click", () => poseCameraOrbitStep(0, -0.2));
-  $("poseDpadDown").addEventListener("click", () => poseCameraOrbitStep(0, 0.2));
-  $("poseDpadLeft").addEventListener("click", () => poseCameraOrbitStep(-0.25, 0));
-  $("poseDpadRight").addEventListener("click", () => poseCameraOrbitStep(0.25, 0));
+  $("poseModelRotX").addEventListener("input", () => {
+    const v = parseFloat($("poseModelRotX").value);
+    $("poseModelRotXVal").textContent = Math.round(v) + "°";
+    if (poseModel) poseModel.rotation.x = v * Math.PI / 180;
+  });
+  $("poseModelRotY").addEventListener("input", () => {
+    const v = parseFloat($("poseModelRotY").value);
+    $("poseModelRotYVal").textContent = Math.round(v) + "°";
+    if (poseModel) poseModel.rotation.y = v * Math.PI / 180;
+  });
+  $("poseModelRotZ").addEventListener("input", () => {
+    const v = parseFloat($("poseModelRotZ").value);
+    $("poseModelRotZVal").textContent = Math.round(v) + "°";
+    if (poseModel) poseModel.rotation.z = v * Math.PI / 180;
+  });
+  bindHold("poseDpadUp", "rotateUp");
+  bindHold("poseDpadDown", "rotateDown");
+  bindHold("poseDpadLeft", "rotateLeft");
+  bindHold("poseDpadRight", "rotateRight");
 
-  $("posePanUp").addEventListener("click", () => poseCameraPanScreen(0, 1));
-  $("posePanDown").addEventListener("click", () => poseCameraPanScreen(0, -1));
-  $("posePanLeft").addEventListener("click", () => poseCameraPanScreen(-1, 0));
-  $("posePanRight").addEventListener("click", () => poseCameraPanScreen(1, 0));
-  $("posePanXMinus").addEventListener("click", () => poseCameraDollyStep(-1));
-  $("posePanXPlus").addEventListener("click", () => poseCameraDollyStep(1));
+  bindHold("posePanUp", "panUp");
+  bindHold("posePanDown", "panDown");
+  bindHold("posePanLeft", "panLeft");
+  bindHold("posePanRight", "panRight");
+  bindHold("posePanXMinus", "dollyBackward");
+  bindHold("posePanXPlus", "dollyForward");
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
@@ -3493,6 +3554,11 @@
           kind: "pose de référence à reproduire d'aussi près que possible (mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte). Bras gauche en bleu, bras droit en orange, jambe gauche en verte, jambe droite en jaune, reste du corps neutre"
         });
         renderGallery();
+      }
+      const poseSentence = "Le personnage doit adopter la pose indiquée par l'image de référence de pose (mannequin 3D).";
+      const currentPrompt = $("prompt").value.trim();
+      if (!currentPrompt.includes(poseSentence)) {
+        $("prompt").value = currentPrompt ? currentPrompt + "\n\n" + poseSentence : poseSentence;
       }
       $("poseStatus").textContent = "Pose ajoutée comme image de référence dans l'onglet Image.";
       $("poseStatus").className = "ok";
