@@ -471,20 +471,28 @@
     z-index: 5;
     box-shadow: 0 8px 20px rgba(0,0,0,0.4);
   }
-  .pose-camera-views {
+  .pose-dpad {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 6px;
-    margin-top: 8px;
+    grid-template-columns: 34px 34px 34px;
+    grid-template-rows: 34px 34px;
+    gap: 3px;
+    z-index: 2;
   }
-  .pose-camera-views button {
-    background: var(--panel-2);
+  .pose-dpad button {
+    background: rgba(29, 27, 22, 0.85);
     border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: 8px;
-    padding: 8px 2px;
-    font-size: 11px;
+    color: var(--text);
+    border-radius: 6px;
+    font-size: 14px;
+    padding: 0;
   }
+  #poseDpadUp { grid-column: 2; grid-row: 1; }
+  #poseDpadLeft { grid-column: 1; grid-row: 2; }
+  #poseDpadRight { grid-column: 3; grid-row: 2; }
+  #poseDpadDown { grid-column: 2; grid-row: 2; }
   .pose-library {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -688,7 +696,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v44</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v46</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1100,40 +1108,23 @@
 <section>
   <h2>🦴 Éditeur de pose 3D</h2>
   <div class="empty-hint" style="margin-bottom:10px;">
-    Oriente la caméra en glissant le doigt sur la scène (pince pour zoomer). Ajuste chaque articulation avec les curseurs, puis capture la pose pour l'ajouter comme image de référence.
+    Tape un point sur le mannequin et fais glisser le doigt pour orienter ce membre. Glisse ailleurs sur la scène pour tourner la caméra (pince pour zoomer), ou utilise la croix directionnelle.
   </div>
 
   <div id="poseCanvasWrap" class="pose-canvas-wrap pose-canvas-sticky">
     <div id="poseLoading" class="empty-hint" style="padding:40px 0; text-align:center;">Chargement de la scène 3D...</div>
-  </div>
-
-  <div class="pose-camera-views">
-    <button type="button" id="poseViewFront">Face</button>
-    <button type="button" id="poseViewBack">Dos</button>
-    <button type="button" id="poseViewLeft">Gauche</button>
-    <button type="button" id="poseViewRight">Droite</button>
-    <button type="button" id="poseViewTop">Haut</button>
-    <button type="button" id="poseViewBottom">Bas</button>
+    <div class="pose-dpad">
+      <button type="button" id="poseDpadUp">▲</button>
+      <button type="button" id="poseDpadLeft">◀</button>
+      <button type="button" id="poseDpadRight">▶</button>
+      <button type="button" id="poseDpadDown">▼</button>
+    </div>
   </div>
 
   <div class="row" style="margin-top:10px;">
     <button type="button" class="pick-btn" id="poseResetBtn">↺ Réinitialiser la pose</button>
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
-
-  <label class="field-label" style="margin-top:14px;">Bibliothèque de poses</label>
-  <div id="poseLibrary" class="pose-library"></div>
-
-  <label class="field-label" style="margin-top:14px;">Poses personnalisées</label>
-  <div class="prompt-chips" id="poseFavoriteChips"></div>
-  <div class="empty-hint" id="poseFavoriteEmptyHint">Aucune pose personnalisée sauvegardée pour l'instant.</div>
-  <div class="save-prompt-row">
-    <input type="text" id="poseFavoriteName" placeholder="Nom de la pose à sauvegarder">
-    <button id="savePoseFavoriteBtn">Sauver</button>
-  </div>
-
-  <label class="field-label" style="margin-top:14px;">Ajustement fin (optionnel)</label>
-  <div id="poseSliders"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2867,42 +2858,6 @@
   // ---------- 3D Pose editor ----------
   let poseLoaded = false;
   let poseScene, poseCamera, poseRenderer, poseControls, poseAnimHandle;
-  let poseJoints = {}; // id -> THREE.Group (pivot)
-
-  const POSE_JOINT_DEFS = [
-    { group: "Tête", joints: [
-      { id: "head_x", axis: "x", label: "Haut/Bas", min: -90, max: 90 },
-      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -150, max: 150 }
-    ]},
-    { group: "Abdomen", joints: [
-      { id: "abdomen_x", axis: "x", label: "Avant/Arrière", min: -50, max: 50 },
-      { id: "abdomen_y", axis: "y", label: "Rotation", min: -60, max: 60 }
-    ]},
-    { group: "Torse / Poitrine", joints: [
-      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -70, max: 70 },
-      { id: "torso_y", axis: "y", label: "Rotation", min: -90, max: 90 }
-    ]},
-    { group: "Bras gauche", joints: [
-      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
-      { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 190 },
-      { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 170 }
-    ]},
-    { group: "Bras droit", joints: [
-      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
-      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -190, max: 20 },
-      { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 170 }
-    ]},
-    { group: "Jambe gauche", joints: [
-      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -130, max: 130 },
-      { id: "hipL_z", axis: "z", label: "Écarter", min: -10, max: 100 },
-      { id: "kneeL_x", axis: "x", label: "Genou", min: -10, max: 160 }
-    ]},
-    { group: "Jambe droite", joints: [
-      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -130, max: 130 },
-      { id: "hipR_z", axis: "z", label: "Écarter", min: -100, max: 10 },
-      { id: "kneeR_x", axis: "x", label: "Genou", min: -10, max: 160 }
-    ]}
-  ];
 
   function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -2914,107 +2869,18 @@
     });
   }
 
-  // Attaches the visual bone (tapered cylinder + rounded caps + joint dot)
-  // to an existing group, and returns the "end" attachment point for the
-  // next bone in the chain.
-  // ---------- Real rigged mannequin (loaded GLB model) ----------
-  // Bones follow the MakeHuman/MB-Lab naming convention, each suffixed with
-  // a unique export id (e.g. "thigh_R_MBlab_sk16...") — matched by prefix.
-  const BONE_NAME_MAP = {
-    head: "head",
-    spineUpper: "spine03",   // chest — closest bone to "Torse / Poitrine"
-    spineLower: "spine01",   // waist — closest bone to "Abdomen"
-    shoulderL: "upperarm_L",
-    elbowL: "lowerarm_L",
-    shoulderR: "upperarm_R",
-    elbowR: "lowerarm_R",
-    hipL: "thigh_L",
-    kneeL: "calf_L",
-    hipR: "thigh_R",
-    kneeR: "calf_R"
-  };
-
-  // For each joint id, which real bone it drives, on which local axis, and
-  // (for 2-axis joints) a shared "pairKey" so both axes combine into one
-  // quaternion instead of overwriting each other.
-  let poseJointMeta = {};
-  // Running angle state per pairKey, e.g. { shoulderL: { x: 12, z: 40 } }
-  let poseBoneAngles = {};
-
-  function findBoneByPrefix(root, prefix) {
-    let found = null;
-    root.traverse(obj => {
-      if (!found && obj.isBone && obj.name.indexOf(prefix) === 0) found = obj;
-    });
-    return found;
-  }
-
-  function setJointDegrees(id, axis, degrees) {
-    const meta = poseJointMeta[id];
-    if (!meta) return;
-    if (POSE_FLIP_JOINTS.includes(id)) degrees = -degrees;
-
-    if (!meta.pairKey) {
-      // Single-axis joint (elbow, knee): bind pose + one incremental rotation.
-      const q = new THREE.Quaternion().setFromAxisAngle(axisVec(axis), degrees * Math.PI / 180);
-      meta.bone.quaternion.copy(meta.bindQuaternion).multiply(q);
-      return;
-    }
-
-    // Two-axis joint: keep a running {x,y,z} state for this bone and
-    // recompute a combined quaternion each time either axis changes, always
-    // applied ON TOP OF the bone's original bind-pose orientation (critical
-    // — replacing the bind quaternion outright is what made "0° on every
-    // slider" not even show a correct T-pose, and made every rotation go in
-    // an unpredictable direction).
-    if (!poseBoneAngles[meta.pairKey]) poseBoneAngles[meta.pairKey] = { x: 0, y: 0, z: 0 };
-    poseBoneAngles[meta.pairKey][axis] = degrees;
-    const st = poseBoneAngles[meta.pairKey];
-    const qPrimary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.primaryAxis), st[meta.primaryAxis] * Math.PI / 180);
-    const qSecondary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.secondaryAxis), st[meta.secondaryAxis] * Math.PI / 180);
-    meta.bone.quaternion.copy(meta.bindQuaternion).multiply(qPrimary).multiply(qSecondary);
-  }
-  // Built lazily (only called after THREE has actually been loaded) —
-  // never construct THREE.* objects at the top level of the script.
-  function axisVec(axis) {
-    if (axis === "x") return new THREE.Vector3(1, 0, 0);
-    if (axis === "y") return new THREE.Vector3(0, 1, 0);
-    return new THREE.Vector3(0, 0, 1);
-  }
-
-  function mapPoseJoints(root) {
-    poseJointMeta = {};
-    poseBoneAngles = {};
-    poseJoints = {}; // kept for compatibility with resetPose()'s slider sweep
-
-    function map2Axis(idPrefix, boneKey, primaryAxis, secondaryAxis) {
-      const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
-      if (!bone) return;
-      const bindQuaternion = bone.quaternion.clone();
-      poseJointMeta[idPrefix + "_" + primaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
-      poseJointMeta[idPrefix + "_" + secondaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
-      poseJoints[idPrefix + "_" + primaryAxis] = bone;
-      poseJoints[idPrefix + "_" + secondaryAxis] = bone;
-    }
-    function map1Axis(id, boneKey, axis) {
-      const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
-      if (!bone) return;
-      poseJointMeta[id] = { bone, bindQuaternion: bone.quaternion.clone(), primaryAxis: axis };
-      poseJoints[id] = bone;
-    }
-
-    map2Axis("head", "head", "x", "y");
-    map2Axis("abdomen", "spineLower", "x", "y");
-    map2Axis("torso", "spineUpper", "x", "y");
-    map2Axis("shoulderL", "shoulderL", "x", "z");
-    map1Axis("elbowL_x", "elbowL", "x");
-    map2Axis("shoulderR", "shoulderR", "x", "z");
-    map1Axis("elbowR_x", "elbowR", "x");
-    map2Axis("hipL", "hipL", "x", "z");
-    map1Axis("kneeL_x", "kneeL", "x");
-    map2Axis("hipR", "hipR", "x", "z");
-    map1Axis("kneeR_x", "kneeR", "x");
-  }
+  // ---------- Real rigged mannequin — direct drag-to-pose ----------
+  // This model's exported node names are generic ("n14_139" etc, no
+  // semantic bone names survived the Sketchfab export), so bones can't be
+  // reliably identified by name. Instead: every bone gets a small tappable
+  // marker positioned at its location; dragging a marker rotates that bone
+  // directly, on top of its original bind-pose orientation. No naming or
+  // per-limb mapping needed — this works for any rigged model.
+  let poseModel = null;
+  let poseBoneList = []; // [{ bone, marker, bindQuaternion, angleX, angleZ }]
+  let poseDragState = null; // { entry, sx, sy, startX, startZ }
+  const POSE_CAMERA_DEFAULT = { camY: 1.4, camZ: 4.2, targetY: 1.25 };
+  let poseSpherical = null; // THREE.Spherical, set up once THREE is loaded
 
   function frameCameraToModel(model) {
     const box = new THREE.Box3().setFromObject(model);
@@ -3026,10 +2892,53 @@
     POSE_CAMERA_DEFAULT.camY = center.y + size.y * 0.12;
     POSE_CAMERA_DEFAULT.camZ = dist;
     POSE_CAMERA_DEFAULT.targetY = center.y;
+    return size;
   }
 
-  let poseModel = null;
-  const POSE_CAMERA_DEFAULT = { camY: 1.4, camZ: 4.2, targetY: 1.25 };
+  function buildBoneMarkers(model, markerRadius) {
+    poseBoneList = [];
+    const seen = new Set();
+    model.traverse(obj => {
+      if (obj.isBone && !seen.has(obj.uuid)) {
+        seen.add(obj.uuid);
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(markerRadius, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0x4c7cff, depthTest: false, transparent: true, opacity: 0.85 })
+        );
+        marker.renderOrder = 999;
+        poseScene.add(marker);
+        poseBoneList.push({
+          bone: obj,
+          marker,
+          bindQuaternion: obj.quaternion.clone(),
+          angleX: 0,
+          angleZ: 0
+        });
+      }
+    });
+  }
+
+  function updateBoneMarkers() {
+    const p = new THREE.Vector3();
+    poseBoneList.forEach(entry => {
+      entry.bone.getWorldPosition(p);
+      entry.marker.position.copy(p);
+    });
+  }
+
+  function applyBoneRotation(entry) {
+    const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), entry.angleX * Math.PI / 180);
+    const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), entry.angleZ * Math.PI / 180);
+    entry.bone.quaternion.copy(entry.bindQuaternion).multiply(qX).multiply(qZ);
+  }
+
+  function resetPose() {
+    poseBoneList.forEach(entry => {
+      entry.angleX = 0;
+      entry.angleZ = 0;
+      entry.bone.quaternion.copy(entry.bindQuaternion);
+    });
+  }
 
   function loadPoseModel(scene) {
     return new Promise((resolve, reject) => {
@@ -3039,8 +2948,8 @@
         (gltf) => {
           poseModel = gltf.scene;
           scene.add(poseModel);
-          frameCameraToModel(poseModel);
-          mapPoseJoints(poseModel);
+          const size = frameCameraToModel(poseModel);
+          buildBoneMarkers(poseModel, Math.max(size.y, size.x) * 0.014);
 
           const ground = new THREE.Mesh(
             new THREE.CircleGeometry(1.4, 32),
@@ -3057,190 +2966,68 @@
     });
   }
 
+  // ---------- Pointer interaction: drag a marker to pose, drag empty
+  // space to orbit the camera (OrbitControls handles that half) ----------
+  function setupPoseInteraction(domEl) {
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points && (raycaster.params.Points.threshold = 0.05);
+    const pointer = new THREE.Vector2();
 
-  // Front/back swing on shoulders and hips felt reversed from what people
-  // expect (positive = forward); flip those specific joints only.
-  const POSE_FLIP_JOINTS = ["shoulderL_x", "shoulderR_x", "hipL_x", "hipR_x", "elbowL_x", "elbowR_x", "kneeL_x", "kneeR_x"];
-
-  function buildPoseSliders() {
-    const wrap = $("poseSliders");
-    wrap.innerHTML = "";
-    POSE_JOINT_DEFS.forEach(section => {
-      const groupEl = document.createElement("div");
-      groupEl.className = "pose-joint-group";
-      const title = document.createElement("div");
-      title.className = "pose-joint-title";
-      title.textContent = section.group;
-      groupEl.appendChild(title);
-
-      section.joints.forEach(j => {
-        const row = document.createElement("div");
-        row.className = "pose-slider-row";
-        const label = document.createElement("label");
-        label.textContent = j.label;
-        const input = document.createElement("input");
-        input.type = "range";
-        input.min = j.min;
-        input.max = j.max;
-        input.value = 0;
-        input.id = "poseSlider_" + j.id + "_" + j.axis;
-        const val = document.createElement("span");
-        val.className = "pose-val";
-        val.textContent = "0°";
-        input.addEventListener("input", () => {
-          val.textContent = input.value + "°";
-          setJointDegrees(j.id, j.axis, parseFloat(input.value));
-        });
-        row.appendChild(label);
-        row.appendChild(input);
-        row.appendChild(val);
-        groupEl.appendChild(row);
-      });
-      wrap.appendChild(groupEl);
-    });
-  }
-
-  function resetPose() {
-    document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
-      input.value = 0;
-      input.dispatchEvent(new Event("input"));
-    });
-  }
-
-  const POSE_PRESETS = [
-    { name: "Debout neutre", icon: "🧍", values: {} },
-    { name: "Marche", icon: "🚶", values: {
-      hipL_x: 25, kneeL_x: 10, hipR_x: -20, kneeR_x: 30,
-      shoulderL_x: -15, shoulderR_x: 15, torso_x: 5
-    }},
-    { name: "Course", icon: "🏃", values: {
-      hipL_x: 45, kneeL_x: 70, hipR_x: -35, kneeR_x: 20,
-      shoulderL_x: -40, elbowL_x: 80, shoulderR_x: 35, elbowR_x: 80, torso_x: 10
-    }},
-    { name: "Bras levés", icon: "🙌", values: {
-      shoulderL_z: 170, shoulderR_z: -170, elbowL_x: 10, elbowR_x: 10
-    }},
-    { name: "Mains sur les hanches", icon: "🧑‍🎤", values: {
-      shoulderL_x: 10, shoulderL_z: 60, elbowL_x: 100,
-      shoulderR_x: 10, shoulderR_z: -60, elbowR_x: 100
-    }},
-    { name: "Bras croisés", icon: "🙅", values: {
-      shoulderL_x: 60, shoulderL_z: 80, elbowL_x: 140,
-      shoulderR_x: 60, shoulderR_z: -80, elbowR_x: 140
-    }},
-    { name: "Salut de la main", icon: "👋", values: {
-      shoulderR_x: -150, shoulderR_z: -30, elbowR_x: 90, head_y: -10
-    }},
-    { name: "Pensif", icon: "🤔", values: {
-      shoulderR_x: -100, shoulderR_z: -20, elbowR_x: 140, head_x: -10, head_y: 15
-    }},
-    { name: "Garde de combat", icon: "🥊", values: {
-      hipL_x: 30, kneeL_x: 30, hipR_x: -20, kneeR_x: 20,
-      shoulderL_x: -30, shoulderL_z: 40, elbowL_x: 90,
-      shoulderR_x: -20, shoulderR_z: -50, elbowR_x: 100, torso_y: 20
-    }},
-    { name: "Assis", icon: "🪑", values: {
-      hipL_x: 90, kneeL_x: 90, hipR_x: 90, kneeR_x: 90, torso_x: -5
-    }},
-    { name: "Flexion biceps", icon: "💪", values: {
-      shoulderL_x: 10, shoulderL_z: 70, elbowL_x: 150,
-      shoulderR_x: 10, shoulderR_z: -70, elbowR_x: 150
-    }},
-    { name: "Étirement", icon: "🙆", values: {
-      shoulderL_x: -10, shoulderL_z: 175, shoulderR_x: -10, shoulderR_z: -175,
-      torso_x: -15, head_x: -10
-    }}
-  ];
-
-  function applyPoseValues(values) {
-    POSE_JOINT_DEFS.forEach(section => {
-      section.joints.forEach(j => {
-        const input = $("poseSlider_" + j.id + "_" + j.axis);
-        if (!input) return;
-        const val = values[j.id] || 0;
-        input.value = Math.max(j.min, Math.min(j.max, val));
-        input.dispatchEvent(new Event("input"));
-      });
-    });
-  }
-
-  function captureCurrentPoseValues() {
-    const values = {};
-    POSE_JOINT_DEFS.forEach(section => {
-      section.joints.forEach(j => {
-        const input = $("poseSlider_" + j.id + "_" + j.axis);
-        if (input) values[j.id] = parseFloat(input.value) || 0;
-      });
-    });
-    return values;
-  }
-
-  function buildPoseLibrary() {
-    const wrap = $("poseLibrary");
-    wrap.innerHTML = "";
-    POSE_PRESETS.forEach(preset => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      const icon = document.createElement("span");
-      icon.className = "pose-icon";
-      icon.textContent = preset.icon;
-      btn.appendChild(icon);
-      btn.appendChild(document.createTextNode(preset.name));
-      btn.addEventListener("click", () => applyPoseValues(preset.values));
-      wrap.appendChild(btn);
-    });
-  }
-
-  // ---------- Saved custom poses ----------
-  const STORAGE_POSE_FAVORITES = "seedream_pose_favorites";
-  function getPoseFavorites() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_POSE_FAVORITES) || "[]");
-    } catch (e) {
-      return [];
+    function pickMarker(clientX, clientY) {
+      const rect = domEl.getBoundingClientRect();
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, poseCamera);
+      const markers = poseBoneList.map(e => e.marker);
+      const hits = raycaster.intersectObjects(markers, false);
+      if (!hits.length) return null;
+      const hitMarker = hits[0].object;
+      return poseBoneList.find(e => e.marker === hitMarker) || null;
     }
-  }
-  function setPoseFavorites(list) {
-    localStorage.setItem(STORAGE_POSE_FAVORITES, JSON.stringify(list));
-  }
-  function renderPoseFavorites() {
-    const list = getPoseFavorites();
-    const wrap = $("poseFavoriteChips");
-    wrap.innerHTML = "";
-    $("poseFavoriteEmptyHint").style.display = list.length ? "none" : "block";
-    list.forEach((p, i) => {
-      const chip = document.createElement("div");
-      chip.className = "chip";
-      const useBtn = document.createElement("button");
-      useBtn.className = "use";
-      useBtn.textContent = p.name;
-      useBtn.addEventListener("click", () => applyPoseValues(p.values));
-      const delBtn = document.createElement("button");
-      delBtn.className = "del";
-      delBtn.textContent = "×";
-      delBtn.addEventListener("click", () => {
-        const l = getPoseFavorites();
-        l.splice(i, 1);
-        setPoseFavorites(l);
-        renderPoseFavorites();
-      });
-      chip.appendChild(useBtn);
-      chip.appendChild(delBtn);
-      wrap.appendChild(chip);
+
+    domEl.addEventListener("pointerdown", (ev) => {
+      const entry = pickMarker(ev.clientX, ev.clientY);
+      if (!entry) return; // let OrbitControls handle camera orbit instead
+      ev.preventDefault();
+      poseDragState = { entry, sx: ev.clientX, sy: ev.clientY, startX: entry.angleX, startZ: entry.angleZ };
+      poseControls.enabled = false;
+      entry.marker.material.color.set(0xffb020);
+      try { domEl.setPointerCapture(ev.pointerId); } catch (e) {}
     });
+
+    domEl.addEventListener("pointermove", (ev) => {
+      if (!poseDragState) return;
+      const dx = ev.clientX - poseDragState.sx;
+      const dy = ev.clientY - poseDragState.sy;
+      const sensitivity = 0.6; // degrees per pixel of drag
+      poseDragState.entry.angleX = poseDragState.startX + dy * sensitivity;
+      poseDragState.entry.angleZ = poseDragState.startZ + dx * sensitivity;
+      applyBoneRotation(poseDragState.entry);
+    });
+
+    function endDrag(ev) {
+      if (!poseDragState) return;
+      poseDragState.entry.marker.material.color.set(0x4c7cff);
+      try { domEl.releasePointerCapture(ev.pointerId); } catch (e) {}
+      poseDragState = null;
+      poseControls.enabled = true;
+    }
+    domEl.addEventListener("pointerup", endDrag);
+    domEl.addEventListener("pointercancel", endDrag);
   }
-  $("savePoseFavoriteBtn").addEventListener("click", () => {
-    const name = $("poseFavoriteName").value.trim();
-    if (!name) { $("poseStatus").textContent = "Donne un nom à la pose avant de sauver."; $("poseStatus").className = "err"; return; }
-    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
-    const list = getPoseFavorites();
-    list.push({ name, values: captureCurrentPoseValues() });
-    setPoseFavorites(list);
-    $("poseFavoriteName").value = "";
-    renderPoseFavorites();
-    $("poseStatus").textContent = "Pose \"" + name + "\" sauvegardée.";
-    $("poseStatus").className = "ok";
-  });
+
+  function poseCameraOrbitStep(azimuthStep, polarStep) {
+    if (!poseSpherical) poseSpherical = new THREE.Spherical();
+    const target = new THREE.Vector3(0, POSE_CAMERA_DEFAULT.targetY, 0);
+    const offset = poseCamera.position.clone().sub(target);
+    poseSpherical.setFromVector3(offset);
+    poseSpherical.theta += azimuthStep;
+    poseSpherical.phi = Math.max(0.15, Math.min(Math.PI - 0.15, poseSpherical.phi + polarStep));
+    offset.setFromSpherical(poseSpherical);
+    poseCamera.position.copy(target).add(offset);
+    poseControls.target.copy(target);
+    poseControls.update();
+  }
 
   async function initPoseEditor() {
     if (poseLoaded) return;
@@ -3286,20 +3073,20 @@
     poseControls = new THREE.OrbitControls(poseCamera, poseRenderer.domElement);
     poseControls.target.set(0, POSE_CAMERA_DEFAULT.targetY, 0);
     poseControls.enablePan = false;
-    poseControls.minDistance = 0.6;
+    poseControls.minDistance = 0.3;
     poseControls.maxDistance = POSE_CAMERA_DEFAULT.camZ * 2.5;
     poseControls.update();
+
+    setupPoseInteraction(poseRenderer.domElement);
 
     function animate() {
       poseAnimHandle = requestAnimationFrame(animate);
       poseControls.update();
+      updateBoneMarkers();
       poseRenderer.render(poseScene, poseCamera);
     }
     animate();
 
-    buildPoseSliders();
-    buildPoseLibrary();
-    renderPoseFavorites();
     poseLoaded = true;
   }
 
@@ -3310,19 +3097,10 @@
     poseControls.target.set(0, POSE_CAMERA_DEFAULT.targetY, 0);
     poseControls.update();
   });
-
-  function setPoseCameraView(x, y, z) {
-    if (!poseLoaded) return;
-    poseCamera.position.set(x, y, z);
-    poseControls.target.set(0, POSE_CAMERA_DEFAULT.targetY, 0);
-    poseControls.update();
-  }
-  $("poseViewFront").addEventListener("click", () => setPoseCameraView(0, POSE_CAMERA_DEFAULT.camY, POSE_CAMERA_DEFAULT.camZ));
-  $("poseViewBack").addEventListener("click", () => setPoseCameraView(0, POSE_CAMERA_DEFAULT.camY, -POSE_CAMERA_DEFAULT.camZ));
-  $("poseViewLeft").addEventListener("click", () => setPoseCameraView(-POSE_CAMERA_DEFAULT.camZ, POSE_CAMERA_DEFAULT.camY, 0));
-  $("poseViewRight").addEventListener("click", () => setPoseCameraView(POSE_CAMERA_DEFAULT.camZ, POSE_CAMERA_DEFAULT.camY, 0));
-  $("poseViewTop").addEventListener("click", () => setPoseCameraView(0, POSE_CAMERA_DEFAULT.camZ * 1.2, 0.01));
-  $("poseViewBottom").addEventListener("click", () => setPoseCameraView(0, -POSE_CAMERA_DEFAULT.camZ * 0.5, 0.01));
+  $("poseDpadUp").addEventListener("click", () => poseCameraOrbitStep(0, -0.2));
+  $("poseDpadDown").addEventListener("click", () => poseCameraOrbitStep(0, 0.2));
+  $("poseDpadLeft").addEventListener("click", () => poseCameraOrbitStep(-0.25, 0));
+  $("poseDpadRight").addEventListener("click", () => poseCameraOrbitStep(0.25, 0));
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
@@ -3342,14 +3120,18 @@
     $("poseStatus").textContent = "Capture et envoi en cours...";
     $("poseStatus").className = "";
     try {
+      // Hide the joint markers for the actual capture, they're a UI aid only.
+      poseBoneList.forEach(e => e.marker.visible = false);
       poseRenderer.render(poseScene, poseCamera);
       const dataUrl = poseRenderer.domElement.toDataURL("image/png");
+      poseBoneList.forEach(e => e.marker.visible = true);
+
       const url = await uploadDataUrl(dataUrl, apiKey, "pose");
       if (referenceImages.length < MAX_REFERENCE_IMAGES) {
         referenceImages.push({
           url: url,
-          label: "🦴 Pose de référence (squelette 3D)",
-          kind: "pose de référence à reproduire d'aussi près que possible (mannequin 3D schématique, à titre indicatif — ce n'est pas une contrainte stricte). Bras gauche en bleu, bras droit en orange, jambe gauche en verte, jambe droite en jaune, torse neutre"
+          label: "🦴 Pose de référence (mannequin 3D)",
+          kind: "pose de référence à reproduire d'aussi près que possible (posture du mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte)"
         });
         renderGallery();
       }
