@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v57</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v58</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2955,7 +2955,9 @@
     hipL: "LeftUpLeg",
     kneeL: "LeftLeg",
     hipR: "RightUpLeg",
-    kneeR: "RightLeg"
+    kneeR: "RightLeg",
+    handL: "LeftHand",
+    handR: "RightHand"
   };
 
   const POSE_JOINT_DEFS = [
@@ -2978,14 +2980,22 @@
     { group: "Bras gauche", joints: [
       { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
       { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 170 },
-      { id: "shoulderL_y", axis: "y", label: "Rotation épaule", min: -80, max: 80 },
+      { id: "shoulderL_y", axis: "y", label: "Rotation épaule", min: -180, max: 180 },
       { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 150 }
     ]},
     { group: "Bras droit", joints: [
       { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -150, max: 150 },
       { id: "shoulderR_z", axis: "z", label: "Écarter", min: -170, max: 20 },
-      { id: "shoulderR_y", axis: "y", label: "Rotation épaule", min: -80, max: 80 },
+      { id: "shoulderR_y", axis: "y", label: "Rotation épaule", min: -180, max: 180 },
       { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 150 }
+    ]},
+    { group: "Poignet gauche", joints: [
+      { id: "wristL_x", axis: "x", label: "Angle", min: -80, max: 80 },
+      { id: "wristL_y", axis: "y", label: "Rotation", min: -180, max: 180 }
+    ]},
+    { group: "Poignet droit", joints: [
+      { id: "wristR_x", axis: "x", label: "Angle", min: -80, max: 80 },
+      { id: "wristR_y", axis: "y", label: "Rotation", min: -180, max: 180 }
     ]},
     { group: "Jambe gauche", joints: [
       { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -110, max: 110 },
@@ -3061,8 +3071,10 @@
     mapAxes("torso", "spineUpper", ["x", "y"]);
     mapAxes("shoulderL", "shoulderL", ["x", "z", "y"]);
     map1Axis("elbowL_x", "elbowL", "x");
+    mapAxes("wristL", "handL", ["x", "y"]);
     mapAxes("shoulderR", "shoulderR", ["x", "z", "y"]);
     map1Axis("elbowR_x", "elbowR", "x");
+    mapAxes("wristR", "handR", ["x", "y"]);
     mapAxes("hipL", "hipL", ["x", "z"]);
     map1Axis("kneeL_x", "kneeL", "x");
     mapAxes("hipR", "hipR", ["x", "z"]);
