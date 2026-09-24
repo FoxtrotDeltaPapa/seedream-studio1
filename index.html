@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v52</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v53</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2933,6 +2933,23 @@
     return size;
   }
 
+  // Reads component j of vertex i from a buffer attribute, working
+  // regardless of whether it's a plain BufferAttribute, an
+  // InterleavedBufferAttribute, or something missing .getComponent
+  // entirely (which is what broke on this particular model).
+  function getAttrComponent(attr, i, j) {
+    if (typeof attr.getComponent === "function") {
+      return attr.getComponent(i, j);
+    }
+    if (attr.isInterleavedBufferAttribute && attr.data) {
+      return attr.data.array[attr.offset + i * attr.data.stride + j];
+    }
+    if (attr.array) {
+      return attr.array[i * attr.itemSize + j];
+    }
+    return 0;
+  }
+
   function computeBoneVertexCounts(model, boneCount) {
     const counts = new Array(boneCount).fill(0);
     model.traverse(obj => {
@@ -2949,10 +2966,10 @@
       for (let i = 0; i < total; i += stride) {
         let maxW = -1, maxBoneIdx = -1;
         for (let j = 0; j < 4; j++) {
-          const w = skinWeightAttr.getComponent(i, j);
+          const w = getAttrComponent(skinWeightAttr, i, j);
           if (w > maxW) {
             maxW = w;
-            maxBoneIdx = skinIndexAttr.getComponent(i, j);
+            maxBoneIdx = getAttrComponent(skinIndexAttr, i, j);
           }
         }
         if (maxBoneIdx >= 0 && maxW > 0) {
