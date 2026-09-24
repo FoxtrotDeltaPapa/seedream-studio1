@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v64</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v65</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1171,8 +1171,15 @@
 
   <label class="field-label" style="margin-top:14px;">Générer une pose depuis une photo</label>
   <div class="empty-hint" style="margin-bottom:8px;">Détection approximative (surtout la profondeur et la rotation propre des membres) — sert de point de départ, à affiner ensuite avec les curseurs.</div>
-  <input type="file" id="poseImageFile" accept="image/*" style="margin-bottom:8px;">
-  <button type="button" class="pick-btn" id="poseDetectBtn">🧍 Détecter la pose sur cette photo</button>
+  <div class="image-source">
+    <button type="button" class="pick-btn" id="pickPoseImageBtn">📷 Choisir une photo</button>
+    <input type="file" id="poseImageFile" accept="image/*" style="display:none;">
+  </div>
+  <div id="posePhotoPreviewWrap" style="display:none; margin-top:8px;">
+    <img id="posePhotoPreview" alt="Photo choisie" style="max-width:160px; max-height:160px; border-radius:8px; border:1px solid var(--border); display:block;">
+    <div id="posePhotoName" class="empty-hint" style="margin-top:4px;"></div>
+  </div>
+  <button type="button" class="pick-btn" id="poseDetectBtn" style="margin-top:8px;">🧍 Détecter la pose sur cette photo</button>
   <div id="poseDetectStatus" class="empty-hint" style="margin-top:6px;"></div>
 
   <label class="field-label" style="margin-top:14px;">Poses sauvegardées</label>
@@ -3574,6 +3581,22 @@
     setSliderIfExists("hipR_x", legR.swing);
     setSliderIfExists("kneeR_x", legR.bend);
   }
+
+  $("pickPoseImageBtn").addEventListener("click", () => $("poseImageFile").click());
+  $("poseImageFile").addEventListener("change", () => {
+    const file = ($("poseImageFile").files || [])[0];
+    if (!file) {
+      $("posePhotoPreviewWrap").style.display = "none";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      $("posePhotoPreview").src = reader.result;
+      $("posePhotoName").textContent = file.name;
+      $("posePhotoPreviewWrap").style.display = "block";
+    };
+    reader.readAsDataURL(file);
+  });
 
   $("poseDetectBtn").addEventListener("click", async () => {
     const file = ($("poseImageFile").files || [])[0];
