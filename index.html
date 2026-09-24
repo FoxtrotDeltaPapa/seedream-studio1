@@ -688,7 +688,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v43</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v44</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2955,23 +2955,24 @@
     if (POSE_FLIP_JOINTS.includes(id)) degrees = -degrees;
 
     if (!meta.pairKey) {
-      // Single-axis joint (elbow, knee): direct axis-angle quaternion.
+      // Single-axis joint (elbow, knee): bind pose + one incremental rotation.
       const q = new THREE.Quaternion().setFromAxisAngle(axisVec(axis), degrees * Math.PI / 180);
-      meta.bone.quaternion.copy(q);
+      meta.bone.quaternion.copy(meta.bindQuaternion).multiply(q);
       return;
     }
 
     // Two-axis joint: keep a running {x,y,z} state for this bone and
-    // recompute a combined quaternion each time either axis changes.
-    // Composition order (primary axis outer, secondary inner) mirrors the
-    // nested-pivot fix used in the procedural rig, which is what resolved
-    // the "arm swings diagonally" bug.
+    // recompute a combined quaternion each time either axis changes, always
+    // applied ON TOP OF the bone's original bind-pose orientation (critical
+    // — replacing the bind quaternion outright is what made "0° on every
+    // slider" not even show a correct T-pose, and made every rotation go in
+    // an unpredictable direction).
     if (!poseBoneAngles[meta.pairKey]) poseBoneAngles[meta.pairKey] = { x: 0, y: 0, z: 0 };
     poseBoneAngles[meta.pairKey][axis] = degrees;
     const st = poseBoneAngles[meta.pairKey];
     const qPrimary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.primaryAxis), st[meta.primaryAxis] * Math.PI / 180);
     const qSecondary = new THREE.Quaternion().setFromAxisAngle(axisVec(meta.secondaryAxis), st[meta.secondaryAxis] * Math.PI / 180);
-    meta.bone.quaternion.copy(qPrimary.multiply(qSecondary));
+    meta.bone.quaternion.copy(meta.bindQuaternion).multiply(qPrimary).multiply(qSecondary);
   }
   // Built lazily (only called after THREE has actually been loaded) —
   // never construct THREE.* objects at the top level of the script.
@@ -2989,15 +2990,16 @@
     function map2Axis(idPrefix, boneKey, primaryAxis, secondaryAxis) {
       const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
       if (!bone) return;
-      poseJointMeta[idPrefix + "_" + primaryAxis] = { bone, pairKey: idPrefix, primaryAxis, secondaryAxis };
-      poseJointMeta[idPrefix + "_" + secondaryAxis] = { bone, pairKey: idPrefix, primaryAxis, secondaryAxis };
+      const bindQuaternion = bone.quaternion.clone();
+      poseJointMeta[idPrefix + "_" + primaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
+      poseJointMeta[idPrefix + "_" + secondaryAxis] = { bone, bindQuaternion, pairKey: idPrefix, primaryAxis, secondaryAxis };
       poseJoints[idPrefix + "_" + primaryAxis] = bone;
       poseJoints[idPrefix + "_" + secondaryAxis] = bone;
     }
     function map1Axis(id, boneKey, axis) {
       const bone = findBoneByPrefix(root, BONE_NAME_MAP[boneKey]);
       if (!bone) return;
-      poseJointMeta[id] = { bone, primaryAxis: axis };
+      poseJointMeta[id] = { bone, bindQuaternion: bone.quaternion.clone(), primaryAxis: axis };
       poseJoints[id] = bone;
     }
 
