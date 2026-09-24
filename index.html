@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v70</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v73</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1170,7 +1170,7 @@
   <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseModelRotZ" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotZVal">0°</span></div>
 
   <label class="field-label" style="margin-top:14px;">Générer une pose depuis une photo</label>
-  <div class="empty-hint" style="margin-bottom:8px;">Détection approximative : règle l'écartement et la flexion des membres (bras/jambes) depuis la photo. L'axe "Avant/Arrière" (profondeur) n'est pas estimé — trop peu fiable — à régler toi-même si besoin.</div>
+  <div class="empty-hint" style="margin-bottom:8px;">Détection approximative : règle l'écartement, la flexion et l'avant/arrière des bras/jambes depuis la photo. L'axe avant/arrière reste le moins fiable (basé sur une estimation de profondeur) — vérifie-le en priorité.</div>
   <div class="image-source">
     <button type="button" class="pick-btn" id="pickPoseImageBtn">📷 Choisir une photo</button>
     <input type="file" id="poseImageFile" accept="image/*" style="display:none;">
@@ -3547,26 +3547,29 @@
     const LH = lm[23], RH = lm[24], LK = lm[25], RK = lm[26], LA = lm[27], RA = lm[28];
 
     const DAMPEN = 0.55; // computed values are unreliable — keep results modest
+    const SWING_SCALE = 55; // depth-based — more conservative than raise/bend
 
     function armAngles(shoulder, elbow, wrist, sign) {
       const raise = angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) * DAMPEN;
+      const swing = (elbow.z - shoulder.z) * SWING_SCALE;
       const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
       const v2x = wrist.x - elbow.x, v2y = wrist.y - elbow.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
       const bend = (180 - elbowAngle) * DAMPEN;
-      return { raise: raise * sign, bend };
+      return { raise: raise * sign, swing, bend };
     }
     function legAngles(hip, knee, ankle, sign) {
       const raise = angleFromDown(knee.x - hip.x, knee.y - hip.y) * DAMPEN;
+      const swing = (knee.z - hip.z) * SWING_SCALE;
       const v1x = hip.x - knee.x, v1y = hip.y - knee.y;
       const v2x = ankle.x - knee.x, v2y = ankle.y - knee.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
       const bend = (180 - kneeAngle) * DAMPEN;
-      return { raise: raise * sign, bend };
+      return { raise: raise * sign, swing, bend };
     }
 
     const armL = armAngles(LS, LE, LW, 1);
@@ -3577,13 +3580,21 @@
     const legL = legAngles(LH, LK, LA, 1);
     const legR = legAngles(RH, RK, RA, -1);
 
-    setSliderIfExists("shoulderL_z", armL.raise);
+    // Swapped vs the original assumption: on this model, the X axis is the
+    // one that visually raises/spreads the limb ("Écarter"), and Z is the
+    // one that swings it forward/back ("Avant/Arrière") — opposite of the
+    // earlier models this convention was first set up on.
+    setSliderIfExists("shoulderL_x", armL.raise);
+    setSliderIfExists("shoulderL_z", armL.swing);
     setSliderIfExists("elbowL_x", armL.bend);
-    setSliderIfExists("shoulderR_z", armR.raise);
+    setSliderIfExists("shoulderR_x", armR.raise);
+    setSliderIfExists("shoulderR_z", armR.swing);
     setSliderIfExists("elbowR_x", armR.bend);
-    setSliderIfExists("hipL_z", legL.raise);
+    setSliderIfExists("hipL_x", legL.raise);
+    setSliderIfExists("hipL_z", legL.swing);
     setSliderIfExists("kneeL_x", legL.bend);
-    setSliderIfExists("hipR_z", legR.raise);
+    setSliderIfExists("hipR_x", legR.raise);
+    setSliderIfExists("hipR_z", legR.swing);
     setSliderIfExists("kneeR_x", legR.bend);
 
     // Head turn: how far the nose sits from the shoulder midline,
@@ -3593,6 +3604,16 @@
     const shoulderWidth = Math.abs(LS.x - RS.x) || 1;
     const turnRatio = (NOSE.x - shoulderMidX) / shoulderWidth;
     setSliderIfExists("head_y", turnRatio * 90 * DAMPEN);
+
+    // Torso/abdomen rotation: how tilted the shoulder line and hip line
+    // are from horizontal — a reasonable 2D signal for lean/twist.
+    // "Avant/Arrière" (forward/back lean) still isn't estimated, same
+    // depth-reliability issue as the other axes.
+    function lineAngleDeg(p1, p2) {
+      return Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+    }
+    setSliderIfExists("torso_y", -lineAngleDeg(LS, RS) * DAMPEN);
+    setSliderIfExists("abdomen_y", -lineAngleDeg(LH, RH) * DAMPEN);
   }
 
   $("pickPoseImageBtn").addEventListener("click", () => $("poseImageFile").click());
