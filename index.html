@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v65</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v66</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3540,33 +3540,38 @@
     const LS = lm[11], RS = lm[12], LE = lm[13], RE = lm[14], LW = lm[15], RW = lm[16];
     const LH = lm[23], RH = lm[24], LK = lm[25], RK = lm[26], LA = lm[27], RA = lm[28];
 
+    const DAMPEN = 0.55; // computed values are unreliable — keep results modest
+
     function armAngles(shoulder, elbow, wrist, sign) {
-      const raise = angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) - 90;
-      const swing = (elbow.z - shoulder.z) * 130; // depth — the least reliable axis
+      const raise = (angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) - 90) * DAMPEN;
+      const swing = (elbow.z - shoulder.z) * 130 * DAMPEN; // depth — the least reliable axis
       const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
       const v2x = wrist.x - elbow.x, v2y = wrist.y - elbow.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
-      const bend = 180 - elbowAngle;
+      const bend = (180 - elbowAngle) * DAMPEN;
       return { raise: raise * sign, swing, bend };
     }
     function legAngles(hip, knee, ankle, sign) {
-      const raise = angleFromDown(knee.x - hip.x, knee.y - hip.y);
-      const swing = (knee.z - hip.z) * 110;
+      const raise = (angleFromDown(knee.x - hip.x, knee.y - hip.y) - 90) * DAMPEN;
+      const swing = (knee.z - hip.z) * 110 * DAMPEN;
       const v1x = hip.x - knee.x, v1y = hip.y - knee.y;
       const v2x = ankle.x - knee.x, v2y = ankle.y - knee.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
-      const bend = 180 - kneeAngle;
+      const bend = (180 - kneeAngle) * DAMPEN;
       return { raise: raise * sign, swing, bend };
     }
 
     const armL = armAngles(LS, LE, LW, 1);
     const armR = armAngles(RS, RE, RW, -1);
+    // Right-side "écarter" sliders use a mirrored (negative) range, just
+    // like the arms — this leg call was missing that mirroring, which was
+    // the main cause of the right leg going in a nonsensical direction.
     const legL = legAngles(LH, LK, LA, 1);
-    const legR = legAngles(RH, RK, RA, 1);
+    const legR = legAngles(RH, RK, RA, -1);
 
     setSliderIfExists("shoulderL_z", armL.raise);
     setSliderIfExists("shoulderL_x", armL.swing);
@@ -3574,10 +3579,10 @@
     setSliderIfExists("shoulderR_z", armR.raise);
     setSliderIfExists("shoulderR_x", armR.swing);
     setSliderIfExists("elbowR_x", armR.bend);
-    setSliderIfExists("hipL_z", legL.raise - 90);
+    setSliderIfExists("hipL_z", legL.raise);
     setSliderIfExists("hipL_x", legL.swing);
     setSliderIfExists("kneeL_x", legL.bend);
-    setSliderIfExists("hipR_z", legR.raise - 90);
+    setSliderIfExists("hipR_z", legR.raise);
     setSliderIfExists("hipR_x", legR.swing);
     setSliderIfExists("kneeR_x", legR.bend);
   }
