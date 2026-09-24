@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v49</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v50</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2937,26 +2937,69 @@
     return size;
   }
 
+  function computeBoneVertexCounts(model, boneCount) {
+    const counts = new Array(boneCount).fill(0);
+    model.traverse(obj => {
+      if (!obj.isSkinnedMesh) return;
+      const geom = obj.geometry;
+      const skinIndexAttr = geom.getAttribute("skinIndex");
+      const skinWeightAttr = geom.getAttribute("skinWeight");
+      if (!skinIndexAttr || !skinWeightAttr) return;
+      const boneMap = obj.skeleton.bones;
+      for (let i = 0; i < skinIndexAttr.count; i++) {
+        let maxW = -1, maxBoneIdx = -1;
+        for (let j = 0; j < 4; j++) {
+          const w = skinWeightAttr.getComponent(i, j);
+          if (w > maxW) {
+            maxW = w;
+            maxBoneIdx = skinIndexAttr.getComponent(i, j);
+          }
+        }
+        if (maxBoneIdx >= 0 && maxW > 0) {
+          const bone = boneMap[maxBoneIdx];
+          if (bone) counts[bone.__poseIndex] = (counts[bone.__poseIndex] || 0) + 1;
+        }
+      }
+    });
+    return counts;
+  }
+
   function buildBoneMarkers(model, markerRadius) {
     poseBoneList = [];
     const seen = new Set();
+    const allBones = [];
     model.traverse(obj => {
       if (obj.isBone && !seen.has(obj.uuid)) {
         seen.add(obj.uuid);
-        const marker = new THREE.Mesh(
-          new THREE.SphereGeometry(markerRadius, 8, 8),
-          new THREE.MeshBasicMaterial({ color: 0x4c7cff, depthTest: false, transparent: true, opacity: 0.85 })
-        );
-        marker.renderOrder = 999;
-        poseScene.add(marker);
-        poseBoneList.push({
-          bone: obj,
-          marker,
-          bindQuaternion: obj.quaternion.clone(),
-          angleX: 0,
-          angleZ: 0
-        });
+        obj.__poseIndex = allBones.length;
+        allBones.push(obj);
       }
+    });
+
+    const counts = computeBoneVertexCounts(model, allBones.length);
+    // Keep only the bones that dominate a meaningful chunk of the mesh —
+    // this drops finger/face/minor bones and keeps the main limbs.
+    const MAX_MARKERS = 26;
+    const ranked = allBones
+      .map((bone, i) => ({ bone, count: counts[i] || 0 }))
+      .filter(e => e.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, MAX_MARKERS);
+
+    ranked.forEach(({ bone }) => {
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(markerRadius, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0x4c7cff, depthTest: false, transparent: true, opacity: 0.85 })
+      );
+      marker.renderOrder = 999;
+      poseScene.add(marker);
+      poseBoneList.push({
+        bone,
+        marker,
+        bindQuaternion: bone.quaternion.clone(),
+        angleX: 0,
+        angleZ: 0
+      });
     });
   }
 
