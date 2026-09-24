@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v76</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v77</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3586,6 +3586,33 @@
     });
   }
 
+  // After a limb bone is posed directly (vector alignment), show an
+  // approximate matching value on its sliders — purely for display and as
+  // a sensible starting point if the person nudges a slider afterward.
+  // This does NOT touch the bone's actual rotation, which stays exact.
+  function syncSliderToBone(boneKey) {
+    const anyMeta = poseJointMeta[boneKey + "_x"];
+    if (!anyMeta) return;
+    const bone = anyMeta.bone;
+    const delta = anyMeta.bindQuaternion.clone().invert().multiply(bone.quaternion);
+    const euler = new THREE.Euler().setFromQuaternion(delta, "XZY");
+    function setDisplay(id, deg) {
+      const input = $("poseSlider_" + id);
+      if (!input) return;
+      input.value = Math.round(clampTo(input, deg));
+      if (input.nextElementSibling) input.nextElementSibling.textContent = input.value + "°";
+    }
+    if (anyMeta.pairKey) {
+      const st = { x: euler.x * 180 / Math.PI, y: euler.y * 180 / Math.PI, z: euler.z * 180 / Math.PI };
+      poseBoneAngles[boneKey] = st;
+      setDisplay(boneKey + "_x", st.x);
+      setDisplay(boneKey + "_z", st.z);
+      setDisplay(boneKey + "_y", st.y);
+    } else {
+      setDisplay(boneKey + "_x", euler.x * 180 / Math.PI);
+    }
+  }
+
   function applyLandmarksToSliders(lm) {
     // Start from a clean pose — otherwise a value left over from an
     // earlier manual test or a previous photo combines with the new
@@ -3619,6 +3646,7 @@
       data.bone.parent.getWorldQuaternion(parentWorldQuat);
       data.bone.quaternion.copy(parentWorldQuat.clone().invert().multiply(newWorldQuat));
       data.bone.updateMatrixWorld(true);
+      syncSliderToBone(chain.boneKey);
     });
 
     // Head turn: how far the nose sits from the shoulder midline,
@@ -3636,8 +3664,9 @@
     function lineAngleDeg(p1, p2) {
       return Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
     }
-    setSliderIfExists("torso_y", -lineAngleDeg(LS, RS) * DAMPEN);
-    setSliderIfExists("abdomen_y", -lineAngleDeg(LH, RH) * DAMPEN);
+    const clampDeg = (v, m) => Math.max(-m, Math.min(m, v));
+    setSliderIfExists("torso_y", clampDeg(-lineAngleDeg(LS, RS) * DAMPEN, 60));
+    setSliderIfExists("abdomen_y", clampDeg(-lineAngleDeg(LH, RH) * DAMPEN, 60));
   }
 
   $("pickPoseImageBtn").addEventListener("click", () => $("poseImageFile").click());
