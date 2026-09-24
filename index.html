@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v80</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v81</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -4038,11 +4038,6 @@
           kind: "pose de référence à reproduire d'aussi près que possible (mannequin 3D, à titre indicatif — ce n'est pas une contrainte stricte). Bras gauche en bleu, bras droit en orange, jambe gauche en verte, jambe droite en jaune, reste du corps neutre"
         });
         renderGallery();
-      }
-      const poseSentence = "Le personnage doit adopter la pose indiquée par l'image de référence de pose (mannequin 3D).";
-      const currentPrompt = $("prompt").value.trim();
-      if (!currentPrompt.includes(poseSentence)) {
-        $("prompt").value = currentPrompt ? currentPrompt + "\n\n" + poseSentence : poseSentence;
       }
       $("poseStatus").textContent = "Pose ajoutée comme image de référence dans l'onglet Image.";
       $("poseStatus").className = "ok";
