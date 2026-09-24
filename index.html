@@ -688,7 +688,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v38</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v39</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1102,6 +1102,12 @@
   <div class="empty-hint" style="margin-bottom:10px;">
     Oriente la caméra en glissant le doigt sur la scène (pince pour zoomer). Ajuste chaque articulation avec les curseurs, puis capture la pose pour l'ajouter comme image de référence.
   </div>
+
+  <label class="field-label">Mannequin</label>
+  <select id="poseGenderSelect" style="margin-bottom:10px;">
+    <option value="female" selected>Féminin</option>
+    <option value="male">Masculin</option>
+  </select>
 
   <div id="poseCanvasWrap" class="pose-canvas-wrap pose-canvas-sticky">
     <div id="poseLoading" class="empty-hint" style="padding:40px 0; text-align:center;">Chargement de la scène 3D...</div>
@@ -2914,12 +2920,10 @@
     });
   }
 
-  function addBone(parent, offset, length, radius, direction, color) {
-    direction = direction || -1; // -1 = hangs downward (limbs), 1 = extends upward (spine)
-    const pivot = new THREE.Group();
-    pivot.position.set(offset.x, offset.y, offset.z);
-    parent.add(pivot);
-
+  // Attaches the visual bone (tapered cylinder + rounded caps + joint dot)
+  // to an existing group, and returns the "end" attachment point for the
+  // next bone in the chain.
+  function attachBoneVisual(group, length, radius, direction, color) {
     const limbMat = new THREE.MeshStandardMaterial({ color: color || 0xb9b0a0, roughness: 0.65 });
     const topRadius = radius;
     const bottomRadius = radius * 0.78;
@@ -2927,34 +2931,76 @@
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, length, 14, 1, true);
     const mesh = new THREE.Mesh(geo, limbMat);
     mesh.position.set(0, direction * length / 2, 0);
-    pivot.add(mesh);
+    group.add(mesh);
 
-    // Rounded cap at the proximal end (blends into the joint sphere) and at
-    // the distal end (so the limb doesn't look like it's been cut flat).
     const capNear = new THREE.Mesh(new THREE.SphereGeometry(topRadius, 12, 12), limbMat);
-    capNear.position.set(0, 0, 0);
-    pivot.add(capNear);
+    group.add(capNear);
     const capFar = new THREE.Mesh(new THREE.SphereGeometry(bottomRadius, 12, 12), limbMat);
     capFar.position.set(0, direction * length, 0);
-    pivot.add(capFar);
+    group.add(capFar);
 
     const jointDot = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 0.55, 10, 10),
       new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 })
     );
-    pivot.add(jointDot);
+    group.add(jointDot);
 
     const end = new THREE.Group();
     end.position.set(0, direction * length, 0);
-    pivot.add(end);
+    group.add(end);
+    return end;
+  }
 
+  // Single-axis bone (elbows, knees — only ever bend around one axis, so a
+  // single pivot is fine here).
+  function addBone(parent, offset, length, radius, direction, color) {
+    direction = direction || -1;
+    const pivot = new THREE.Group();
+    pivot.position.set(offset.x, offset.y, offset.z);
+    parent.add(pivot);
+    const end = attachBoneVisual(pivot, length, radius, direction, color);
     return { pivot, end };
   }
+
+  // Two-axis bone (shoulders, hips, spine, head — swing AND raise/twist).
+  // Critical fix: each axis gets its OWN nested pivot group instead of both
+  // rotations being set on the same object. Combining two Euler rotations
+  // on one group makes them interfere (the second rotation happens in a
+  // frame already tilted by the first), which is what made the arm swing
+  // diagonally across the body instead of straight forward/back. With two
+  // nested groups, each rotation happens around a clean, independent axis.
+  function addBone2(parent, offset, length, radius, direction, color) {
+    direction = direction || -1;
+    const outer = new THREE.Group();
+    outer.position.set(offset.x, offset.y, offset.z);
+    parent.add(outer);
+    const inner = new THREE.Group();
+    outer.add(inner);
+    const end = attachBoneVisual(inner, length, radius, direction, color);
+    return { outer, inner, end };
+  }
+
+  const POSE_PROPORTIONS = {
+    female: {
+      shoulderWidth: 0.28, hipWidth: 0.175, waistRadius: 0.12, chestRadius: 0.155,
+      armUpperLen: 0.42, armLowerLen: 0.38, armRadius: 0.07,
+      legUpperLen: 0.58, legLowerLen: 0.54, legRadius: 0.105,
+      headScale: [0.85, 1.2, 0.92]
+    },
+    male: {
+      shoulderWidth: 0.36, hipWidth: 0.165, waistRadius: 0.145, chestRadius: 0.195,
+      armUpperLen: 0.46, armLowerLen: 0.42, armRadius: 0.09,
+      legUpperLen: 0.6, legLowerLen: 0.56, legRadius: 0.125,
+      headScale: [0.92, 1.15, 0.95]
+    }
+  };
+  let poseGender = "female";
 
   function buildPoseRig(scene) {
     const root = new THREE.Group();
     scene.add(root);
 
+    const P = POSE_PROPORTIONS[poseGender];
     const COLOR_TORSO = 0xcfc6b0;
     const COLOR_SKIN = 0xd8c9a8;
     const COLOR_ARM_L = 0x4c7cff;   // blue
@@ -2967,40 +3013,47 @@
     root.add(hips);
     poseJoints._hips = hips;
 
-    // Torso is split in two so it bends more naturally: abdomen (lower,
-    // narrower — the "waist") then chest (upper, wider — the ribcage).
-    const abdomen = addBone(hips, { x: 0, y: 0, z: 0 }, 0.26, 0.135, 1, COLOR_TORSO);
-    poseJoints.abdomen_x = abdomen.pivot;
-    poseJoints.abdomen_y = abdomen.pivot;
+    // Torso split in two: abdomen (waist) then chest (ribcage), each a
+    // proper 2-axis joint now.
+    const abdomen = addBone2(hips, { x: 0, y: 0, z: 0 }, 0.24, P.waistRadius, 1, COLOR_TORSO);
+    poseJoints.abdomen_x = abdomen.outer;
+    poseJoints.abdomen_y = abdomen.inner;
 
-    const chest = addBone(abdomen.end, { x: 0, y: 0, z: 0 }, 0.36, 0.175, 1, COLOR_TORSO);
-    poseJoints.torso_x = chest.pivot;
-    poseJoints.torso_y = chest.pivot;
+    const chest = addBone2(abdomen.end, { x: 0, y: 0, z: 0 }, 0.36, P.chestRadius, 1, COLOR_TORSO);
+    poseJoints.torso_x = chest.outer;
+    poseJoints.torso_y = chest.inner;
 
-    const neck = addBone(chest.end, { x: 0, y: 0, z: 0 }, 0.12, 0.06, 1, COLOR_SKIN);
+    const neck = addBone(chest.end, { x: 0, y: 0, z: 0 }, 0.11, 0.058, 1, COLOR_SKIN);
 
-    const headPivot = new THREE.Group();
-    neck.end.add(headPivot);
+    // Head: also a proper 2-axis (independent) pivot pair.
+    const headOuter = new THREE.Group();
+    neck.end.add(headOuter);
+    const headInner = new THREE.Group();
+    headOuter.add(headInner);
     const headMesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.15, 18, 18),
       new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
     );
-    headMesh.scale.set(0.9, 1.22, 0.98); // oval, more human than a perfect sphere
+    headMesh.scale.set(P.headScale[0], P.headScale[1], P.headScale[2]);
     headMesh.position.set(0, 0.16, 0);
-    headPivot.add(headMesh);
-    // Small dark "nose" bump on the front of the face so it's obvious which
-    // way the head (and by extension the whole pose) is facing.
-    const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.022, 0.05, 8),
-      new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.7 })
-    );
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 0.16, 0.145);
-    headPivot.add(nose);
-    poseJoints.head_x = headPivot;
-    poseJoints.head_y = headPivot;
+    headInner.add(headMesh);
 
-    function addHand(parent, sign) {
+    // Face-direction marker: a bright, unmistakable nose plus two small
+    // "eye" dots, all on the front of the face.
+    const faceMat = new THREE.MeshStandardMaterial({ color: 0x2c2420, roughness: 0.5 });
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.11, 10), faceMat);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 0.155, 0.155);
+    headInner.add(nose);
+    [-0.055, 0.055].forEach(ex => {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), faceMat);
+      eye.position.set(ex, 0.2, 0.14);
+      headInner.add(eye);
+    });
+    poseJoints.head_x = headOuter;
+    poseJoints.head_y = headInner;
+
+    function addHand(parent) {
       const hand = new THREE.Mesh(
         new THREE.SphereGeometry(0.06, 10, 10),
         new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
@@ -3017,31 +3070,33 @@
       parent.add(foot);
     }
 
-    const shoulderL = addBone(chest.end, { x: 0.32, y: -0.03, z: 0 }, 0.48, 0.085, -1, COLOR_ARM_L);
-    poseJoints.shoulderL_x = shoulderL.pivot;
-    poseJoints.shoulderL_z = shoulderL.pivot;
-    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, 0.44, 0.07, -1, COLOR_ARM_L);
+    // Arms: deliberately shorter than legs (as in real proportions).
+    const shoulderL = addBone2(chest.end, { x: P.shoulderWidth, y: -0.03, z: 0 }, P.armUpperLen, P.armRadius, -1, COLOR_ARM_L);
+    poseJoints.shoulderL_x = shoulderL.outer;
+    poseJoints.shoulderL_z = shoulderL.inner;
+    const elbowL = addBone(shoulderL.end, { x: 0, y: 0, z: 0 }, P.armLowerLen, P.armRadius * 0.82, -1, COLOR_ARM_L);
     poseJoints.elbowL_x = elbowL.pivot;
-    addHand(elbowL.end, 1);
+    addHand(elbowL.end);
 
-    const shoulderR = addBone(chest.end, { x: -0.32, y: -0.03, z: 0 }, 0.48, 0.085, -1, COLOR_ARM_R);
-    poseJoints.shoulderR_x = shoulderR.pivot;
-    poseJoints.shoulderR_z = shoulderR.pivot;
-    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, 0.44, 0.07, -1, COLOR_ARM_R);
+    const shoulderR = addBone2(chest.end, { x: -P.shoulderWidth, y: -0.03, z: 0 }, P.armUpperLen, P.armRadius, -1, COLOR_ARM_R);
+    poseJoints.shoulderR_x = shoulderR.outer;
+    poseJoints.shoulderR_z = shoulderR.inner;
+    const elbowR = addBone(shoulderR.end, { x: 0, y: 0, z: 0 }, P.armLowerLen, P.armRadius * 0.82, -1, COLOR_ARM_R);
     poseJoints.elbowR_x = elbowR.pivot;
-    addHand(elbowR.end, -1);
+    addHand(elbowR.end);
 
-    const hipL = addBone(hips, { x: 0.155, y: 0, z: 0 }, 0.54, 0.115, -1, COLOR_LEG_L);
-    poseJoints.hipL_x = hipL.pivot;
-    poseJoints.hipL_z = hipL.pivot;
-    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, 0.5, 0.085, -1, COLOR_LEG_L);
+    // Legs: longer than arms.
+    const hipL = addBone2(hips, { x: P.hipWidth, y: 0, z: 0 }, P.legUpperLen, P.legRadius, -1, COLOR_LEG_L);
+    poseJoints.hipL_x = hipL.outer;
+    poseJoints.hipL_z = hipL.inner;
+    const kneeL = addBone(hipL.end, { x: 0, y: 0, z: 0 }, P.legLowerLen, P.legRadius * 0.75, -1, COLOR_LEG_L);
     poseJoints.kneeL_x = kneeL.pivot;
     addFoot(kneeL.end);
 
-    const hipR = addBone(hips, { x: -0.155, y: 0, z: 0 }, 0.54, 0.115, -1, COLOR_LEG_R);
-    poseJoints.hipR_x = hipR.pivot;
-    poseJoints.hipR_z = hipR.pivot;
-    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, 0.5, 0.085, -1, COLOR_LEG_R);
+    const hipR = addBone2(hips, { x: -P.hipWidth, y: 0, z: 0 }, P.legUpperLen, P.legRadius, -1, COLOR_LEG_R);
+    poseJoints.hipR_x = hipR.outer;
+    poseJoints.hipR_z = hipR.inner;
+    const kneeR = addBone(hipR.end, { x: 0, y: 0, z: 0 }, P.legLowerLen, P.legRadius * 0.75, -1, COLOR_LEG_R);
     poseJoints.kneeR_x = kneeR.pivot;
     addFoot(kneeR.end);
 
@@ -3053,6 +3108,18 @@
     ground.position.y = 0;
     scene.add(ground);
   }
+
+  function rebuildPoseRig() {
+    if (!poseScene) return;
+    for (let i = poseScene.children.length - 1; i >= 0; i--) {
+      const child = poseScene.children[i];
+      if (child.type === "Group" || child.type === "Mesh") poseScene.remove(child);
+    }
+    poseJoints = {};
+    buildPoseRig(poseScene);
+    resetPose();
+  }
+
 
   // Front/back swing on shoulders and hips felt reversed from what people
   // expect (positive = forward); flip those specific joints only.
@@ -3298,6 +3365,10 @@
     poseLoaded = true;
   }
 
+  $("poseGenderSelect").addEventListener("change", () => {
+    poseGender = $("poseGenderSelect").value;
+    rebuildPoseRig();
+  });
   $("poseResetBtn").addEventListener("click", resetPose);
   $("poseCameraResetBtn").addEventListener("click", () => {
     if (!poseLoaded) return;
