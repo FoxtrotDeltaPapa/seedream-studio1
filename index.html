@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v69</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v70</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3535,8 +3535,14 @@
   }
 
   function applyLandmarksToSliders(lm) {
+    // Start from a clean pose — otherwise a value left over from an
+    // earlier manual test or a previous photo combines with the new
+    // detection and produces a distorted result.
+    resetPose();
+
     // MediaPipe indices — already labeled from the subject's own
     // perspective (their left/right), matching our bone naming directly.
+    const NOSE = lm[0];
     const LS = lm[11], RS = lm[12], LE = lm[13], RE = lm[14], LW = lm[15], RW = lm[16];
     const LH = lm[23], RH = lm[24], LK = lm[25], RK = lm[26], LA = lm[27], RA = lm[28];
 
@@ -3544,25 +3550,23 @@
 
     function armAngles(shoulder, elbow, wrist, sign) {
       const raise = angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) * DAMPEN;
-      const swing = (elbow.z - shoulder.z) * 130 * DAMPEN; // depth — the least reliable axis
       const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
       const v2x = wrist.x - elbow.x, v2y = wrist.y - elbow.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
       const bend = (180 - elbowAngle) * DAMPEN;
-      return { raise: raise * sign, swing, bend };
+      return { raise: raise * sign, bend };
     }
     function legAngles(hip, knee, ankle, sign) {
       const raise = angleFromDown(knee.x - hip.x, knee.y - hip.y) * DAMPEN;
-      const swing = (knee.z - hip.z) * 110 * DAMPEN;
       const v1x = hip.x - knee.x, v1y = hip.y - knee.y;
       const v2x = ankle.x - knee.x, v2y = ankle.y - knee.y;
       const dot = v1x * v2x + v1y * v2y;
       const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
       const kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
       const bend = (180 - kneeAngle) * DAMPEN;
-      return { raise: raise * sign, swing, bend };
+      return { raise: raise * sign, bend };
     }
 
     const armL = armAngles(LS, LE, LW, 1);
@@ -3573,11 +3577,6 @@
     const legL = legAngles(LH, LK, LA, 1);
     const legR = legAngles(RH, RK, RA, -1);
 
-    // "Swing" (avant/arrière) is computed from MediaPipe's depth estimate,
-    // which is too noisy in practice — it was the main cause of arms/legs
-    // flying into nonsensical positions regardless of the actual photo.
-    // Leaving it at 0 and only applying raise + bend (both purely 2D, and
-    // much more reliable) instead.
     setSliderIfExists("shoulderL_z", armL.raise);
     setSliderIfExists("elbowL_x", armL.bend);
     setSliderIfExists("shoulderR_z", armR.raise);
@@ -3586,6 +3585,14 @@
     setSliderIfExists("kneeL_x", legL.bend);
     setSliderIfExists("hipR_z", legR.raise);
     setSliderIfExists("kneeR_x", legR.bend);
+
+    // Head turn: how far the nose sits from the shoulder midline,
+    // relative to shoulder width. Head nod (up/down) isn't estimated —
+    // too unreliable from a single front-facing photo.
+    const shoulderMidX = (LS.x + RS.x) / 2;
+    const shoulderWidth = Math.abs(LS.x - RS.x) || 1;
+    const turnRatio = (NOSE.x - shoulderMidX) / shoulderWidth;
+    setSliderIfExists("head_y", turnRatio * 90 * DAMPEN);
   }
 
   $("pickPoseImageBtn").addEventListener("click", () => $("poseImageFile").click());
