@@ -688,7 +688,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v39</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v41</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2982,16 +2982,16 @@
 
   const POSE_PROPORTIONS = {
     female: {
-      shoulderWidth: 0.28, hipWidth: 0.175, waistRadius: 0.12, chestRadius: 0.155,
-      armUpperLen: 0.42, armLowerLen: 0.38, armRadius: 0.07,
-      legUpperLen: 0.58, legLowerLen: 0.54, legRadius: 0.105,
-      headScale: [0.85, 1.2, 0.92]
+      shoulderWidth: 0.24, hipWidth: 0.14, waistRadius: 0.085, chestRadius: 0.12,
+      armUpperLen: 0.46, armLowerLen: 0.42, armRadius: 0.045,
+      legUpperLen: 0.78, legLowerLen: 0.74, legRadius: 0.06,
+      headRadius: 0.115, headScale: [0.85, 1.2, 0.92]
     },
     male: {
       shoulderWidth: 0.36, hipWidth: 0.165, waistRadius: 0.145, chestRadius: 0.195,
       armUpperLen: 0.46, armLowerLen: 0.42, armRadius: 0.09,
       legUpperLen: 0.6, legLowerLen: 0.56, legRadius: 0.125,
-      headScale: [0.92, 1.15, 0.95]
+      headRadius: 0.15, headScale: [0.92, 1.15, 0.95]
     }
   };
   let poseGender = "female";
@@ -3008,8 +3008,9 @@
     const COLOR_LEG_L = 0x4caf6b;   // green
     const COLOR_LEG_R = 0xd9c23c;   // yellow
 
+    const legTotal = P.legUpperLen + P.legLowerLen;
     const hips = new THREE.Group();
-    hips.position.set(0, 1.05, 0);
+    hips.position.set(0, legTotal, 0);
     root.add(hips);
     poseJoints._hips = hips;
 
@@ -3025,29 +3026,32 @@
 
     const neck = addBone(chest.end, { x: 0, y: 0, z: 0 }, 0.11, 0.058, 1, COLOR_SKIN);
 
-    // Head: also a proper 2-axis (independent) pivot pair.
+    // Head: also a proper 2-axis (independent) pivot pair. Sized from the
+    // profile so a fashion-croquis figure gets a proportionally smaller
+    // head, matching the tall/slim silhouette.
+    const hr = P.headRadius;
     const headOuter = new THREE.Group();
     neck.end.add(headOuter);
     const headInner = new THREE.Group();
     headOuter.add(headInner);
     const headMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.15, 18, 18),
+      new THREE.SphereGeometry(hr, 18, 18),
       new THREE.MeshStandardMaterial({ color: COLOR_SKIN, roughness: 0.6 })
     );
     headMesh.scale.set(P.headScale[0], P.headScale[1], P.headScale[2]);
-    headMesh.position.set(0, 0.16, 0);
+    headMesh.position.set(0, hr + 0.01, 0);
     headInner.add(headMesh);
 
     // Face-direction marker: a bright, unmistakable nose plus two small
-    // "eye" dots, all on the front of the face.
+    // "eye" dots, all on the front of the face (scaled with head size).
     const faceMat = new THREE.MeshStandardMaterial({ color: 0x2c2420, roughness: 0.5 });
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.11, 10), faceMat);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(hr * 0.3, hr * 0.73, 10), faceMat);
     nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 0.155, 0.155);
+    nose.position.set(0, hr + 0.005, hr * 1.03);
     headInner.add(nose);
-    [-0.055, 0.055].forEach(ex => {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 8), faceMat);
-      eye.position.set(ex, 0.2, 0.14);
+    [-hr * 0.37, hr * 0.37].forEach(ex => {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(hr * 0.13, 8, 8), faceMat);
+      eye.position.set(ex, hr + 0.01 + hr * 0.27, hr * 0.93);
       headInner.add(eye);
     });
     poseJoints.head_x = headOuter;
@@ -3123,7 +3127,7 @@
 
   // Front/back swing on shoulders and hips felt reversed from what people
   // expect (positive = forward); flip those specific joints only.
-  const POSE_FLIP_JOINTS = ["shoulderL_x", "shoulderR_x", "hipL_x", "hipR_x"];
+  const POSE_FLIP_JOINTS = ["shoulderL_x", "shoulderR_x", "hipL_x", "hipR_x", "elbowL_x", "elbowR_x", "kneeL_x", "kneeR_x"];
 
   function setJointDegrees(id, axis, degrees) {
     const pivot = poseJoints[id];
@@ -3330,7 +3334,7 @@
 
     const w = wrap.clientWidth, h = wrap.clientHeight;
     poseCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-    poseCamera.position.set(0, 1.25, 3.6);
+    poseCamera.position.set(0, 1.4, 4.2);
 
     poseRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     poseRenderer.setSize(w, h);
@@ -3346,10 +3350,10 @@
     buildPoseRig(poseScene);
 
     poseControls = new THREE.OrbitControls(poseCamera, poseRenderer.domElement);
-    poseControls.target.set(0, 1.0, 0);
+    poseControls.target.set(0, 1.25, 0);
     poseControls.enablePan = false;
     poseControls.minDistance = 1.5;
-    poseControls.maxDistance = 6;
+    poseControls.maxDistance = 8;
     poseControls.update();
 
     function animate() {
@@ -3372,23 +3376,23 @@
   $("poseResetBtn").addEventListener("click", resetPose);
   $("poseCameraResetBtn").addEventListener("click", () => {
     if (!poseLoaded) return;
-    poseCamera.position.set(0, 1.25, 3.6);
-    poseControls.target.set(0, 1.0, 0);
+    poseCamera.position.set(0, 1.4, 4.2);
+    poseControls.target.set(0, 1.25, 0);
     poseControls.update();
   });
 
   function setPoseCameraView(x, y, z) {
     if (!poseLoaded) return;
     poseCamera.position.set(x, y, z);
-    poseControls.target.set(0, 1.0, 0);
+    poseControls.target.set(0, 1.25, 0);
     poseControls.update();
   }
-  $("poseViewFront").addEventListener("click", () => setPoseCameraView(0, 1.25, 3.6));
-  $("poseViewBack").addEventListener("click", () => setPoseCameraView(0, 1.25, -3.6));
-  $("poseViewLeft").addEventListener("click", () => setPoseCameraView(-3.6, 1.25, 0));
-  $("poseViewRight").addEventListener("click", () => setPoseCameraView(3.6, 1.25, 0));
-  $("poseViewTop").addEventListener("click", () => setPoseCameraView(0, 4.4, 0.01));
-  $("poseViewBottom").addEventListener("click", () => setPoseCameraView(0, -2.2, 0.01));
+  $("poseViewFront").addEventListener("click", () => setPoseCameraView(0, 1.4, 4.2));
+  $("poseViewBack").addEventListener("click", () => setPoseCameraView(0, 1.4, -4.2));
+  $("poseViewLeft").addEventListener("click", () => setPoseCameraView(-4.2, 1.4, 0));
+  $("poseViewRight").addEventListener("click", () => setPoseCameraView(4.2, 1.4, 0));
+  $("poseViewTop").addEventListener("click", () => setPoseCameraView(0, 5.2, 0.01));
+  $("poseViewBottom").addEventListener("click", () => setPoseCameraView(0, -2.6, 0.01));
 
   $("poseCaptureBtn").addEventListener("click", async () => {
     if (!poseLoaded) {
