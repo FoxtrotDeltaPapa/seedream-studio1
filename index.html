@@ -647,7 +647,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v33</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v35</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2809,32 +2809,32 @@
 
   const POSE_JOINT_DEFS = [
     { group: "Tête", joints: [
-      { id: "head_x", axis: "x", label: "Haut/Bas", min: -40, max: 40 },
-      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -60, max: 60 }
+      { id: "head_x", axis: "x", label: "Haut/Bas", min: -90, max: 90 },
+      { id: "head_y", axis: "y", label: "Gauche/Droite", min: -150, max: 150 }
     ]},
     { group: "Torse", joints: [
-      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -30, max: 30 },
-      { id: "torso_y", axis: "y", label: "Rotation", min: -40, max: 40 }
+      { id: "torso_x", axis: "x", label: "Avant/Arrière", min: -70, max: 70 },
+      { id: "torso_y", axis: "y", label: "Rotation", min: -90, max: 90 }
     ]},
     { group: "Bras gauche", joints: [
-      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -90, max: 150 },
-      { id: "shoulderL_z", axis: "z", label: "Écarter", min: 0, max: 170 },
-      { id: "elbowL_x", axis: "x", label: "Coude", min: 0, max: 150 }
+      { id: "shoulderL_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "shoulderL_z", axis: "z", label: "Écarter", min: -20, max: 190 },
+      { id: "elbowL_x", axis: "x", label: "Coude", min: -10, max: 170 }
     ]},
     { group: "Bras droit", joints: [
-      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -90, max: 150 },
-      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -170, max: 0 },
-      { id: "elbowR_x", axis: "x", label: "Coude", min: 0, max: 150 }
+      { id: "shoulderR_x", axis: "x", label: "Avant/Arrière", min: -180, max: 180 },
+      { id: "shoulderR_z", axis: "z", label: "Écarter", min: -190, max: 20 },
+      { id: "elbowR_x", axis: "x", label: "Coude", min: -10, max: 170 }
     ]},
     { group: "Jambe gauche", joints: [
-      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -60, max: 100 },
-      { id: "hipL_z", axis: "z", label: "Écarter", min: 0, max: 45 },
-      { id: "kneeL_x", axis: "x", label: "Genou", min: 0, max: 140 }
+      { id: "hipL_x", axis: "x", label: "Avant/Arrière", min: -130, max: 130 },
+      { id: "hipL_z", axis: "z", label: "Écarter", min: -10, max: 100 },
+      { id: "kneeL_x", axis: "x", label: "Genou", min: -10, max: 160 }
     ]},
     { group: "Jambe droite", joints: [
-      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -60, max: 100 },
-      { id: "hipR_z", axis: "z", label: "Écarter", min: -45, max: 0 },
-      { id: "kneeR_x", axis: "x", label: "Genou", min: 0, max: 140 }
+      { id: "hipR_x", axis: "x", label: "Avant/Arrière", min: -130, max: 130 },
+      { id: "hipR_z", axis: "z", label: "Écarter", min: -100, max: 10 },
+      { id: "kneeR_x", axis: "x", label: "Genou", min: -10, max: 160 }
     ]}
   ];
 
@@ -2854,14 +2854,26 @@
     pivot.position.set(offset.x, offset.y, offset.z);
     parent.add(pivot);
 
-    const geo = new THREE.CylinderGeometry(radius * 0.85, radius, length, 10);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xb9b0a0, roughness: 0.7 });
-    const mesh = new THREE.Mesh(geo, mat);
+    const limbMat = new THREE.MeshStandardMaterial({ color: 0xb9b0a0, roughness: 0.65 });
+    const topRadius = radius;
+    const bottomRadius = radius * 0.78;
+
+    const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, length, 14, 1, true);
+    const mesh = new THREE.Mesh(geo, limbMat);
     mesh.position.set(0, direction * length / 2, 0);
     pivot.add(mesh);
 
+    // Rounded cap at the proximal end (blends into the joint sphere) and at
+    // the distal end (so the limb doesn't look like it's been cut flat).
+    const capNear = new THREE.Mesh(new THREE.SphereGeometry(topRadius, 12, 12), limbMat);
+    capNear.position.set(0, 0, 0);
+    pivot.add(capNear);
+    const capFar = new THREE.Mesh(new THREE.SphereGeometry(bottomRadius, 12, 12), limbMat);
+    capFar.position.set(0, direction * length, 0);
+    pivot.add(capFar);
+
     const jointDot = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 1.05, 10, 10),
+      new THREE.SphereGeometry(radius * 0.55, 10, 10),
       new THREE.MeshStandardMaterial({ color: 0x4c7cff, roughness: 0.5 })
     );
     pivot.add(jointDot);
