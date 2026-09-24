@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v63</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v64</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1168,6 +1168,12 @@
   <div class="pose-slider-row"><label>Rotation X</label><input type="range" id="poseModelRotX" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotXVal">0°</span></div>
   <div class="pose-slider-row"><label>Rotation Y</label><input type="range" id="poseModelRotY" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotYVal">0°</span></div>
   <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseModelRotZ" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotZVal">0°</span></div>
+
+  <label class="field-label" style="margin-top:14px;">Générer une pose depuis une photo</label>
+  <div class="empty-hint" style="margin-bottom:8px;">Détection approximative (surtout la profondeur et la rotation propre des membres) — sert de point de départ, à affiner ensuite avec les curseurs.</div>
+  <input type="file" id="poseImageFile" accept="image/*" style="margin-bottom:8px;">
+  <button type="button" class="pick-btn" id="poseDetectBtn">🧍 Détecter la pose sur cette photo</button>
+  <div id="poseDetectStatus" class="empty-hint" style="margin-top:6px;"></div>
 
   <label class="field-label" style="margin-top:14px;">Poses sauvegardées</label>
   <div class="prompt-chips" id="poseFavoriteChips"></div>
@@ -3482,6 +3488,133 @@
 
     poseLoaded = true;
   }
+
+  // ---------- Detect a pose from an uploaded photo (MediaPipe) ----------
+  let poseLandmarker = null;
+
+  async function ensurePoseLandmarker() {
+    if (poseLandmarker) return poseLandmarker;
+    const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs");
+    const filesetResolver = await vision.FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    );
+    poseLandmarker = await vision.PoseLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+        delegate: "CPU"
+      },
+      runningMode: "IMAGE",
+      numPoses: 1
+    });
+    return poseLandmarker;
+  }
+
+  // Angle between a 2D vector and "straight down" (0,1): 0°=hanging down,
+  // 90°=horizontal, 180°=raised straight up.
+  function angleFromDown(dx, dy) {
+    const len = Math.hypot(dx, dy) || 1e-6;
+    const cosA = Math.max(-1, Math.min(1, dy / len));
+    return Math.acos(cosA) * 180 / Math.PI;
+  }
+  function clampTo(input, v) {
+    const min = parseFloat(input.min), max = parseFloat(input.max);
+    return Math.max(min, Math.min(max, v));
+  }
+  function setSliderIfExists(id, degrees) {
+    const input = $("poseSlider_" + id);
+    if (!input) return;
+    input.value = Math.round(clampTo(input, degrees));
+    input.dispatchEvent(new Event("input"));
+  }
+
+  function applyLandmarksToSliders(lm) {
+    // MediaPipe indices — already labeled from the subject's own
+    // perspective (their left/right), matching our bone naming directly.
+    const LS = lm[11], RS = lm[12], LE = lm[13], RE = lm[14], LW = lm[15], RW = lm[16];
+    const LH = lm[23], RH = lm[24], LK = lm[25], RK = lm[26], LA = lm[27], RA = lm[28];
+
+    function armAngles(shoulder, elbow, wrist, sign) {
+      const raise = angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) - 90;
+      const swing = (elbow.z - shoulder.z) * 130; // depth — the least reliable axis
+      const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
+      const v2x = wrist.x - elbow.x, v2y = wrist.y - elbow.y;
+      const dot = v1x * v2x + v1y * v2y;
+      const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
+      const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
+      const bend = 180 - elbowAngle;
+      return { raise: raise * sign, swing, bend };
+    }
+    function legAngles(hip, knee, ankle, sign) {
+      const raise = angleFromDown(knee.x - hip.x, knee.y - hip.y);
+      const swing = (knee.z - hip.z) * 110;
+      const v1x = hip.x - knee.x, v1y = hip.y - knee.y;
+      const v2x = ankle.x - knee.x, v2y = ankle.y - knee.y;
+      const dot = v1x * v2x + v1y * v2y;
+      const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
+      const kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
+      const bend = 180 - kneeAngle;
+      return { raise: raise * sign, swing, bend };
+    }
+
+    const armL = armAngles(LS, LE, LW, 1);
+    const armR = armAngles(RS, RE, RW, -1);
+    const legL = legAngles(LH, LK, LA, 1);
+    const legR = legAngles(RH, RK, RA, 1);
+
+    setSliderIfExists("shoulderL_z", armL.raise);
+    setSliderIfExists("shoulderL_x", armL.swing);
+    setSliderIfExists("elbowL_x", armL.bend);
+    setSliderIfExists("shoulderR_z", armR.raise);
+    setSliderIfExists("shoulderR_x", armR.swing);
+    setSliderIfExists("elbowR_x", armR.bend);
+    setSliderIfExists("hipL_z", legL.raise - 90);
+    setSliderIfExists("hipL_x", legL.swing);
+    setSliderIfExists("kneeL_x", legL.bend);
+    setSliderIfExists("hipR_z", legR.raise - 90);
+    setSliderIfExists("hipR_x", legR.swing);
+    setSliderIfExists("kneeR_x", legR.bend);
+  }
+
+  $("poseDetectBtn").addEventListener("click", async () => {
+    const file = ($("poseImageFile").files || [])[0];
+    if (!file) {
+      $("poseDetectStatus").textContent = "Choisis d'abord une photo.";
+      return;
+    }
+    if (!poseLoaded) {
+      $("poseDetectStatus").textContent = "La scène 3D n'est pas encore chargée.";
+      return;
+    }
+    const btn = $("poseDetectBtn");
+    btn.disabled = true;
+    $("poseDetectStatus").textContent = "Chargement du détecteur de pose...";
+    try {
+      const landmarker = await ensurePoseLandmarker();
+      $("poseDetectStatus").textContent = "Analyse de la photo...";
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const img = new Image();
+      img.src = dataUrl;
+      await img.decode();
+
+      const result = landmarker.detect(img);
+      if (!result.landmarks || !result.landmarks.length) {
+        $("poseDetectStatus").textContent = "Aucune personne détectée sur cette photo.";
+        return;
+      }
+      applyLandmarksToSliders(result.landmarks[0]);
+      $("poseDetectStatus").textContent = "Pose détectée et appliquée (approximative — ajuste avec les curseurs si besoin).";
+    } catch (err) {
+      $("poseDetectStatus").textContent = "Erreur : " + err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   function resetPoseWithModel() {
     resetPose();
