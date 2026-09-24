@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v73</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v75</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2997,7 +2997,9 @@
     hipR: "RightUpLeg",
     kneeR: "RightLeg",
     handL: "LeftHand",
-    handR: "RightHand"
+    handR: "RightHand",
+    footL: "LeftFoot",
+    footR: "RightFoot"
   };
 
   const POSE_JOINT_DEFS = [
@@ -3224,11 +3226,22 @@
   }
 
   // ---------- Shareable pose code (export/import) ----------
+  function r4(n) { return Math.round(n * 10000) / 10000; }
+
   function capturePoseCode() {
-    const data = {};
+    const data = { s: {}, b: {} };
     document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
       const v = parseFloat(input.value);
-      if (v) data[input.id.replace("poseSlider_", "")] = v; // skip zeros — compact code
+      if (v) data.s[input.id.replace("poseSlider_", "")] = v; // skip zeros — compact code
+    });
+    // Arm/leg bones set directly by photo detection don't move their
+    // sliders — capture their actual orientation too, or a saved pose
+    // from a detected photo would lose those limbs entirely.
+    LIMB_CHAINS.forEach(chain => {
+      const info = poseLimbBindData[chain.boneKey];
+      if (!info) return;
+      const q = info.bone.quaternion;
+      data.b[chain.boneKey] = [r4(q.x), r4(q.y), r4(q.z), r4(q.w)];
     });
     return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
   }
@@ -3239,11 +3252,21 @@
     } catch (e) {
       throw new Error("Code de pose invalide.");
     }
+    const sliderData = data.s || data; // "data.s" is the new format; a plain map is an older code
     document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
       const key = input.id.replace("poseSlider_", "");
-      input.value = data[key] || 0;
+      input.value = sliderData[key] || 0;
       input.dispatchEvent(new Event("input"));
     });
+    if (data.b) {
+      LIMB_CHAINS.forEach(chain => {
+        const info = poseLimbBindData[chain.boneKey];
+        const arr = data.b[chain.boneKey];
+        if (!info || !arr) return;
+        info.bone.quaternion.set(arr[0], arr[1], arr[2], arr[3]);
+        info.bone.updateMatrixWorld(true);
+      });
+    }
   }
 
   $("poseCopyCodeBtn").addEventListener("click", async () => {
@@ -3346,6 +3369,7 @@
             buildPoseSliders();
             renderPoseFavorites();
             colorLimbsByVertex(poseModel);
+            captureLimbBindDirs(poseModel);
 
             const ground = new THREE.Mesh(
               new THREE.CircleGeometry(1.4, 32),
@@ -3516,13 +3540,6 @@
     return poseLandmarker;
   }
 
-  // Angle between a 2D vector and "straight down" (0,1): 0°=hanging down,
-  // 90°=horizontal, 180°=raised straight up.
-  function angleFromDown(dx, dy) {
-    const len = Math.hypot(dx, dy) || 1e-6;
-    const cosA = Math.max(-1, Math.min(1, dy / len));
-    return Math.acos(cosA) * 180 / Math.PI;
-  }
   function clampTo(input, v) {
     const min = parseFloat(input.min), max = parseFloat(input.max);
     return Math.max(min, Math.min(max, v));
@@ -3534,6 +3551,41 @@
     input.dispatchEvent(new Event("input"));
   }
 
+  // Which bone chain each limb segment corresponds to, and which two
+  // MediaPipe landmark indices give its direction in the photo.
+  const LIMB_CHAINS = [
+    { boneKey: "shoulderL", childKey: "elbowL", lmParent: 11, lmChild: 13 },
+    { boneKey: "elbowL", childKey: "handL", lmParent: 13, lmChild: 15 },
+    { boneKey: "shoulderR", childKey: "elbowR", lmParent: 12, lmChild: 14 },
+    { boneKey: "elbowR", childKey: "handR", lmParent: 14, lmChild: 16 },
+    { boneKey: "hipL", childKey: "kneeL", lmParent: 23, lmChild: 25 },
+    { boneKey: "kneeL", childKey: "footL", lmParent: 25, lmChild: 27 },
+    { boneKey: "hipR", childKey: "kneeR", lmParent: 24, lmChild: 26 },
+    { boneKey: "kneeR", childKey: "footR", lmParent: 26, lmChild: 28 }
+  ];
+  let poseLimbBindData = {};
+
+  // Captured once, right after the model loads (still in bind pose): for
+  // each limb segment, the direction it points in world space, and the
+  // bone's own world orientation at that moment. This is what lets us
+  // later compute "what rotation turns the bind direction into the
+  // direction seen in the photo" — a single, robust 3D operation instead
+  // of hand-decomposing into swing/raise/bend angles (which kept coming
+  // out wrong).
+  function captureLimbBindDirs(model) {
+    poseLimbBindData = {};
+    LIMB_CHAINS.forEach(chain => {
+      const bone = findBoneByPrefix(model, BONE_NAME_MAP[chain.boneKey]);
+      const child = findBoneByPrefix(model, BONE_NAME_MAP[chain.childKey]);
+      if (!bone || !child) return;
+      const bPos = new THREE.Vector3(); bone.getWorldPosition(bPos);
+      const cPos = new THREE.Vector3(); child.getWorldPosition(cPos);
+      const bindDir = cPos.clone().sub(bPos).normalize();
+      const bindWorldQuat = new THREE.Quaternion(); bone.getWorldQuaternion(bindWorldQuat);
+      poseLimbBindData[chain.boneKey] = { bone, bindDir, bindWorldQuat };
+    });
+  }
+
   function applyLandmarksToSliders(lm) {
     // Start from a clean pose — otherwise a value left over from an
     // earlier manual test or a previous photo combines with the new
@@ -3543,59 +3595,31 @@
     // MediaPipe indices — already labeled from the subject's own
     // perspective (their left/right), matching our bone naming directly.
     const NOSE = lm[0];
-    const LS = lm[11], RS = lm[12], LE = lm[13], RE = lm[14], LW = lm[15], RW = lm[16];
-    const LH = lm[23], RH = lm[24], LK = lm[25], RK = lm[26], LA = lm[27], RA = lm[28];
+    const LS = lm[11], RS = lm[12];
+    const LH = lm[23], RH = lm[24];
 
     const DAMPEN = 0.55; // computed values are unreliable — keep results modest
-    const SWING_SCALE = 55; // depth-based — more conservative than raise/bend
 
-    function armAngles(shoulder, elbow, wrist, sign) {
-      const raise = angleFromDown(elbow.x - shoulder.x, elbow.y - shoulder.y) * DAMPEN;
-      const swing = (elbow.z - shoulder.z) * SWING_SCALE;
-      const v1x = shoulder.x - elbow.x, v1y = shoulder.y - elbow.y;
-      const v2x = wrist.x - elbow.x, v2y = wrist.y - elbow.y;
-      const dot = v1x * v2x + v1y * v2y;
-      const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
-      const elbowAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
-      const bend = (180 - elbowAngle) * DAMPEN;
-      return { raise: raise * sign, swing, bend };
-    }
-    function legAngles(hip, knee, ankle, sign) {
-      const raise = angleFromDown(knee.x - hip.x, knee.y - hip.y) * DAMPEN;
-      const swing = (knee.z - hip.z) * SWING_SCALE;
-      const v1x = hip.x - knee.x, v1y = hip.y - knee.y;
-      const v2x = ankle.x - knee.x, v2y = ankle.y - knee.y;
-      const dot = v1x * v2x + v1y * v2y;
-      const mag = (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)) || 1e-6;
-      const kneeAngle = Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180 / Math.PI;
-      const bend = (180 - kneeAngle) * DAMPEN;
-      return { raise: raise * sign, swing, bend };
-    }
+    // Directly rotate each limb bone so it points the same way the photo
+    // shows it pointing — processed parent-first (shoulder before elbow,
+    // hip before knee) so each child's parent orientation is already
+    // final by the time it's used.
+    LIMB_CHAINS.forEach(chain => {
+      const data = poseLimbBindData[chain.boneKey];
+      if (!data) return;
+      const p1 = lm[chain.lmParent], p2 = lm[chain.lmChild];
+      // Image y grows downward; our 3D world is y-up, so flip it.
+      const photoDir = new THREE.Vector3(p2.x - p1.x, -(p2.y - p1.y), (p2.z - p1.z));
+      if (photoDir.lengthSq() < 1e-8) return;
+      photoDir.normalize();
 
-    const armL = armAngles(LS, LE, LW, 1);
-    const armR = armAngles(RS, RE, RW, -1);
-    // Right-side "écarter" sliders use a mirrored (negative) range, just
-    // like the arms — this leg call was missing that mirroring, which was
-    // the main cause of the right leg going in a nonsensical direction.
-    const legL = legAngles(LH, LK, LA, 1);
-    const legR = legAngles(RH, RK, RA, -1);
-
-    // Swapped vs the original assumption: on this model, the X axis is the
-    // one that visually raises/spreads the limb ("Écarter"), and Z is the
-    // one that swings it forward/back ("Avant/Arrière") — opposite of the
-    // earlier models this convention was first set up on.
-    setSliderIfExists("shoulderL_x", armL.raise);
-    setSliderIfExists("shoulderL_z", armL.swing);
-    setSliderIfExists("elbowL_x", armL.bend);
-    setSliderIfExists("shoulderR_x", armR.raise);
-    setSliderIfExists("shoulderR_z", armR.swing);
-    setSliderIfExists("elbowR_x", armR.bend);
-    setSliderIfExists("hipL_x", legL.raise);
-    setSliderIfExists("hipL_z", legL.swing);
-    setSliderIfExists("kneeL_x", legL.bend);
-    setSliderIfExists("hipR_x", legR.raise);
-    setSliderIfExists("hipR_z", legR.swing);
-    setSliderIfExists("kneeR_x", legR.bend);
+      const qDelta = new THREE.Quaternion().setFromUnitVectors(data.bindDir, photoDir);
+      const newWorldQuat = qDelta.multiply(data.bindWorldQuat.clone());
+      const parentWorldQuat = new THREE.Quaternion();
+      data.bone.parent.getWorldQuaternion(parentWorldQuat);
+      data.bone.quaternion.copy(parentWorldQuat.clone().invert().multiply(newWorldQuat));
+      data.bone.updateMatrixWorld(true);
+    });
 
     // Head turn: how far the nose sits from the shoulder midline,
     // relative to shoulder width. Head nod (up/down) isn't estimated —
@@ -3671,7 +3695,7 @@
       const w = img.naturalWidth, h = img.naturalHeight;
       const pixelLandmarks = result.landmarks[0].map(p => ({ x: p.x * w, y: p.y * h, z: p.z * w }));
       applyLandmarksToSliders(pixelLandmarks);
-      $("poseDetectStatus").textContent = "Pose détectée et appliquée (approximative — ajuste avec les curseurs si besoin).";
+      $("poseDetectStatus").textContent = "Pose détectée et appliquée. Bras/jambes sont orientés directement (leurs curseurs resteront affichés à 0° tant que tu n'y touches pas) — si tu bouges un curseur, ce membre repart de la pose de repos.";
     } catch (err) {
       $("poseDetectStatus").textContent = "Erreur : " + err.message;
     } finally {
