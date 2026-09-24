@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v66</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v67</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1170,7 +1170,7 @@
   <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseModelRotZ" min="-180" max="180" value="0"><span class="pose-val" id="poseModelRotZVal">0°</span></div>
 
   <label class="field-label" style="margin-top:14px;">Générer une pose depuis une photo</label>
-  <div class="empty-hint" style="margin-bottom:8px;">Détection approximative (surtout la profondeur et la rotation propre des membres) — sert de point de départ, à affiner ensuite avec les curseurs.</div>
+  <div class="empty-hint" style="margin-bottom:8px;">Détection approximative : règle l'écartement et la flexion des membres (bras/jambes) depuis la photo. L'axe "Avant/Arrière" (profondeur) n'est pas estimé — trop peu fiable — à régler toi-même si besoin.</div>
   <div class="image-source">
     <button type="button" class="pick-btn" id="pickPoseImageBtn">📷 Choisir une photo</button>
     <input type="file" id="poseImageFile" accept="image/*" style="display:none;">
@@ -3573,17 +3573,18 @@
     const legL = legAngles(LH, LK, LA, 1);
     const legR = legAngles(RH, RK, RA, -1);
 
+    // "Swing" (avant/arrière) is computed from MediaPipe's depth estimate,
+    // which is too noisy in practice — it was the main cause of arms/legs
+    // flying into nonsensical positions regardless of the actual photo.
+    // Leaving it at 0 and only applying raise + bend (both purely 2D, and
+    // much more reliable) instead.
     setSliderIfExists("shoulderL_z", armL.raise);
-    setSliderIfExists("shoulderL_x", armL.swing);
     setSliderIfExists("elbowL_x", armL.bend);
     setSliderIfExists("shoulderR_z", armR.raise);
-    setSliderIfExists("shoulderR_x", armR.swing);
     setSliderIfExists("elbowR_x", armR.bend);
     setSliderIfExists("hipL_z", legL.raise);
-    setSliderIfExists("hipL_x", legL.swing);
     setSliderIfExists("kneeL_x", legL.bend);
     setSliderIfExists("hipR_z", legR.raise);
-    setSliderIfExists("hipR_x", legR.swing);
     setSliderIfExists("kneeR_x", legR.bend);
   }
 
