@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v77</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v79</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2952,6 +2952,7 @@
   // reliably matched by name and controlled with dedicated sliders,
   // composed on top of the bone's original bind-pose orientation.
   let poseModel = null;
+  let poseModelPivot = null;
   const POSE_CAMERA_DEFAULT = { camY: 1.4, camZ: 4.2, targetY: 1.25 };
   let poseSpherical = null; // THREE.Spherical, set up once THREE is loaded
 
@@ -2965,7 +2966,7 @@
     POSE_CAMERA_DEFAULT.camY = center.y + size.y * 0.12;
     POSE_CAMERA_DEFAULT.camZ = dist;
     POSE_CAMERA_DEFAULT.targetY = center.y;
-    return size;
+    return { size, center };
   }
 
   // Reads component j of vertex i from a buffer attribute, working
@@ -3219,9 +3220,23 @@
   }
 
   function resetPose() {
+    // Fully direct reset — clears all tracked angle state and restores
+    // every bone straight to its bind quaternion. More robust than
+    // resetting one slider axis at a time (which briefly leaves a
+    // multi-axis joint's other axes at their old value mid-reset, and
+    // could leave stale state carrying over between detections).
+    poseBoneAngles = {};
+    const seenBones = new Set();
+    Object.keys(poseJointMeta).forEach(id => {
+      const meta = poseJointMeta[id];
+      if (!meta.bone || seenBones.has(meta.bone.uuid)) return;
+      seenBones.add(meta.bone.uuid);
+      meta.bone.quaternion.copy(meta.bindQuaternion);
+      meta.bone.updateMatrixWorld(true);
+    });
     document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
       input.value = 0;
-      input.dispatchEvent(new Event("input"));
+      if (input.nextElementSibling) input.nextElementSibling.textContent = "0°";
     });
   }
 
@@ -3363,8 +3378,16 @@
         (gltf) => {
           try {
             poseModel = gltf.scene;
-            scene.add(poseModel);
-            const size = frameCameraToModel(poseModel);
+            const { size, center } = frameCameraToModel(poseModel);
+            // Rotating poseModel directly pivots around its own origin,
+            // which sits at the feet for this rig — X/Z rotation then
+            // swings the whole body around underneath it. Instead, offset
+            // the model inside a group centered on it, and rotate that.
+            poseModelPivot = new THREE.Group();
+            poseModelPivot.position.copy(center);
+            scene.add(poseModelPivot);
+            poseModel.position.sub(center);
+            poseModelPivot.add(poseModel);
             mapPoseJoints(poseModel);
             buildPoseSliders();
             renderPoseFavorites();
@@ -3582,7 +3605,8 @@
       const cPos = new THREE.Vector3(); child.getWorldPosition(cPos);
       const bindDir = cPos.clone().sub(bPos).normalize();
       const bindWorldQuat = new THREE.Quaternion(); bone.getWorldQuaternion(bindWorldQuat);
-      poseLimbBindData[chain.boneKey] = { bone, bindDir, bindWorldQuat };
+      const bindParentWorldQuat = new THREE.Quaternion(); bone.parent.getWorldQuaternion(bindParentWorldQuat);
+      poseLimbBindData[chain.boneKey] = { bone, bindDir, bindWorldQuat, bindParentWorldQuat };
     });
   }
 
@@ -3631,6 +3655,7 @@
     // shows it pointing — processed parent-first (shoulder before elbow,
     // hip before knee) so each child's parent orientation is already
     // final by the time it's used.
+    const pivotInverse = poseModelPivot ? poseModelPivot.quaternion.clone().invert() : new THREE.Quaternion();
     LIMB_CHAINS.forEach(chain => {
       const data = poseLimbBindData[chain.boneKey];
       if (!data) return;
@@ -3639,12 +3664,14 @@
       const photoDir = new THREE.Vector3(p2.x - p1.x, -(p2.y - p1.y), -(p2.z - p1.z));
       if (photoDir.lengthSq() < 1e-8) return;
       photoDir.normalize();
+      // If the whole mannequin has been spun via the orientation sliders,
+      // undo that spin here so the photo direction is compared against
+      // the bind reference on equal terms (both fixed, unrotated frame).
+      photoDir.applyQuaternion(pivotInverse);
 
       const qDelta = new THREE.Quaternion().setFromUnitVectors(data.bindDir, photoDir);
       const newWorldQuat = qDelta.multiply(data.bindWorldQuat.clone());
-      const parentWorldQuat = new THREE.Quaternion();
-      data.bone.parent.getWorldQuaternion(parentWorldQuat);
-      data.bone.quaternion.copy(parentWorldQuat.clone().invert().multiply(newWorldQuat));
+      data.bone.quaternion.copy(data.bindParentWorldQuat.clone().invert().multiply(newWorldQuat));
       data.bone.updateMatrixWorld(true);
       syncSliderToBone(chain.boneKey);
     });
@@ -3738,7 +3765,7 @@
       $(id).value = 0;
       $(id + "Val").textContent = "0°";
     });
-    if (poseModel) poseModel.rotation.set(0, 0, 0);
+    if (poseModelPivot) poseModelPivot.rotation.set(0, 0, 0);
   }
   $("poseResetBtn").addEventListener("click", resetPoseWithModel);
   $("poseCameraResetBtn").addEventListener("click", () => {
@@ -3750,17 +3777,17 @@
   $("poseModelRotX").addEventListener("input", () => {
     const v = parseFloat($("poseModelRotX").value);
     $("poseModelRotXVal").textContent = Math.round(v) + "°";
-    if (poseModel) poseModel.rotation.x = v * Math.PI / 180;
+    if (poseModelPivot) poseModelPivot.rotation.x = v * Math.PI / 180;
   });
   $("poseModelRotY").addEventListener("input", () => {
     const v = parseFloat($("poseModelRotY").value);
     $("poseModelRotYVal").textContent = Math.round(v) + "°";
-    if (poseModel) poseModel.rotation.y = v * Math.PI / 180;
+    if (poseModelPivot) poseModelPivot.rotation.y = v * Math.PI / 180;
   });
   $("poseModelRotZ").addEventListener("input", () => {
     const v = parseFloat($("poseModelRotZ").value);
     $("poseModelRotZVal").textContent = Math.round(v) + "°";
-    if (poseModel) poseModel.rotation.z = v * Math.PI / 180;
+    if (poseModelPivot) poseModelPivot.rotation.z = v * Math.PI / 180;
   });
   bindHold("poseDpadUp", "rotateUp");
   bindHold("poseDpadDown", "rotateDown");
