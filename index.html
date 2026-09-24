@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v50</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v52</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1162,12 +1162,8 @@
     <button type="button" class="pick-btn" id="poseCameraResetBtn">🎥 Recentrer la caméra</button>
   </div>
 
-  <div id="poseSelectedPanel" style="display:none; margin-top:14px;">
-    <label class="field-label">Articulation sélectionnée</label>
-    <div class="pose-slider-row"><label>Rotation X</label><input type="range" id="poseSelX" min="-90" max="90" value="0"><span class="pose-val" id="poseSelXVal">0°</span></div>
-    <div class="pose-slider-row"><label>Rotation Z</label><input type="range" id="poseSelZ" min="-90" max="90" value="0"><span class="pose-val" id="poseSelZVal">0°</span></div>
-  </div>
-  <div class="empty-hint" id="poseSelectedEmptyHint" style="margin-top:10px;">Tape un point bleu sur le mannequin pour sélectionner une articulation.</div>
+  <div class="empty-hint" style="margin-top:10px;">Tape un point pour le mettre en évidence (orange) et faire défiler jusqu'à son curseur — ou règle directement les curseurs ci-dessous, classés automatiquement par membre.</div>
+  <div id="poseJointSliders" style="margin-top:10px;"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -2940,13 +2936,17 @@
   function computeBoneVertexCounts(model, boneCount) {
     const counts = new Array(boneCount).fill(0);
     model.traverse(obj => {
-      if (!obj.isSkinnedMesh) return;
+      if (!obj.isSkinnedMesh || !obj.geometry) return;
       const geom = obj.geometry;
       const skinIndexAttr = geom.getAttribute("skinIndex");
       const skinWeightAttr = geom.getAttribute("skinWeight");
-      if (!skinIndexAttr || !skinWeightAttr) return;
+      if (!skinIndexAttr || !skinWeightAttr || !obj.skeleton) return;
       const boneMap = obj.skeleton.bones;
-      for (let i = 0; i < skinIndexAttr.count; i++) {
+      const total = skinIndexAttr.count || 0;
+      // Sample instead of checking every vertex — plenty accurate for
+      // ranking which bones matter most, much faster on mobile.
+      const stride = total > 6000 ? 5 : 1;
+      for (let i = 0; i < total; i += stride) {
         let maxW = -1, maxBoneIdx = -1;
         for (let j = 0; j < 4; j++) {
           const w = skinWeightAttr.getComponent(i, j);
@@ -2957,7 +2957,9 @@
         }
         if (maxBoneIdx >= 0 && maxW > 0) {
           const bone = boneMap[maxBoneIdx];
-          if (bone) counts[bone.__poseIndex] = (counts[bone.__poseIndex] || 0) + 1;
+          if (bone && typeof bone.__poseIndex === "number") {
+            counts[bone.__poseIndex] = (counts[bone.__poseIndex] || 0) + 1;
+          }
         }
       }
     });
@@ -3011,6 +3013,127 @@
     });
   }
 
+  // Classify the kept bones into labeled body parts purely from their
+  // bind-pose position (height, distance from the centerline, left/right
+  // side) — no bone names needed, just geometry.
+  function classifyPoseBones() {
+    const withPos = poseBoneList.map(entry => {
+      const p = new THREE.Vector3();
+      entry.bone.getWorldPosition(p);
+      return { entry, x: p.x, y: p.y, z: p.z };
+    });
+    if (!withPos.length) return [];
+
+    const ys = withPos.map(e => e.y);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const xs = withPos.map(e => Math.abs(e.x));
+    const maxAbsX = Math.max(...xs, 0.001);
+    const centerThreshold = maxAbsX * 0.28; // near the vertical centerline
+    const midY = minY + (maxY - minY) * 0.52; // rough waist height, arms above, legs below
+
+    const head = withPos.reduce((a, b) => (b.y > a.y ? b : a));
+    const rest1 = withPos.filter(e => e !== head);
+
+    let neck = null;
+    const centerRest = rest1.filter(e => Math.abs(e.x) <= centerThreshold);
+    if (centerRest.length) {
+      neck = centerRest.reduce((a, b) => (b.y > a.y ? b : a));
+    }
+    const rest2 = rest1.filter(e => e !== neck);
+
+    const spineBones = rest2
+      .filter(e => Math.abs(e.x) <= centerThreshold)
+      .sort((a, b) => b.y - a.y);
+    const spineNames = ["Torse haut", "Torse", "Abdomen", "Bassin"];
+
+    const limbBones = rest2.filter(e => Math.abs(e.x) > centerThreshold);
+    const leftBones = limbBones.filter(e => e.x < 0).sort((a, b) => b.y - a.y);
+    const rightBones = limbBones.filter(e => e.x > 0).sort((a, b) => b.y - a.y);
+
+    function splitArmLeg(sideBones) {
+      const arm = sideBones.filter(e => e.y >= midY).sort((a, b) => Math.abs(a.x) - Math.abs(b.x));
+      const leg = sideBones.filter(e => e.y < midY).sort((a, b) => b.y - a.y);
+      return { arm, leg };
+    }
+    const left = splitArmLeg(leftBones);
+    const right = splitArmLeg(rightBones);
+
+    const armNames = ["Épaule/bras", "Coude/avant-bras", "Main"];
+    const legNames = ["Hanche/cuisse", "Genou/mollet", "Pied"];
+
+    const result = [];
+    result.push({ entry: head.entry, group: "Tête", label: "Tête" });
+    if (neck) result.push({ entry: neck.entry, group: "Tête", label: "Cou" });
+    spineBones.forEach((e, i) => result.push({ entry: e.entry, group: "Torse", label: spineNames[i] || ("Torse " + (i + 1)) }));
+    left.arm.forEach((e, i) => result.push({ entry: e.entry, group: "Bras gauche", label: armNames[i] || ("Bras gauche " + (i + 1)) }));
+    right.arm.forEach((e, i) => result.push({ entry: e.entry, group: "Bras droit", label: armNames[i] || ("Bras droit " + (i + 1)) }));
+    left.leg.forEach((e, i) => result.push({ entry: e.entry, group: "Jambe gauche", label: legNames[i] || ("Jambe gauche " + (i + 1)) }));
+    right.leg.forEach((e, i) => result.push({ entry: e.entry, group: "Jambe droite", label: legNames[i] || ("Jambe droite " + (i + 1)) }));
+    return result;
+  }
+
+  function buildJointSliders() {
+    const classified = classifyPoseBones();
+    const wrap = $("poseJointSliders");
+    wrap.innerHTML = "";
+    const groups = {};
+    const order = [];
+    classified.forEach(item => {
+      if (!groups[item.group]) { groups[item.group] = []; order.push(item.group); }
+      groups[item.group].push(item);
+    });
+
+    order.forEach(groupName => {
+      const groupEl = document.createElement("div");
+      groupEl.className = "pose-joint-group";
+      const title = document.createElement("div");
+      title.className = "pose-joint-title";
+      title.textContent = groupName;
+      groupEl.appendChild(title);
+
+      groups[groupName].forEach(item => {
+        const entry = item.entry;
+        entry.rowEl = groupEl; // for scrollIntoView on tap-select
+
+        const rowX = document.createElement("div");
+        rowX.className = "pose-slider-row";
+        const labelX = document.createElement("label");
+        labelX.textContent = item.label + " · X";
+        const inputX = document.createElement("input");
+        inputX.type = "range"; inputX.min = -90; inputX.max = 90; inputX.value = 0;
+        const valX = document.createElement("span");
+        valX.className = "pose-val"; valX.textContent = "0°";
+        inputX.addEventListener("input", () => {
+          entry.angleX = parseFloat(inputX.value);
+          valX.textContent = Math.round(entry.angleX) + "°";
+          applyBoneRotation(entry);
+        });
+        entry.inputX = inputX; entry.valX = valX;
+        rowX.appendChild(labelX); rowX.appendChild(inputX); rowX.appendChild(valX);
+
+        const rowZ = document.createElement("div");
+        rowZ.className = "pose-slider-row";
+        const labelZ = document.createElement("label");
+        labelZ.textContent = item.label + " · Z";
+        const inputZ = document.createElement("input");
+        inputZ.type = "range"; inputZ.min = -90; inputZ.max = 90; inputZ.value = 0;
+        const valZ = document.createElement("span");
+        valZ.className = "pose-val"; valZ.textContent = "0°";
+        inputZ.addEventListener("input", () => {
+          entry.angleZ = parseFloat(inputZ.value);
+          valZ.textContent = Math.round(entry.angleZ) + "°";
+          applyBoneRotation(entry);
+        });
+        entry.inputZ = inputZ; entry.valZ = valZ;
+        rowZ.appendChild(labelZ); rowZ.appendChild(inputZ); rowZ.appendChild(valZ);
+
+        groupEl.appendChild(rowX);
+        groupEl.appendChild(rowZ);
+      });
+      wrap.appendChild(groupEl);
+    });
+  }
+
   function applyBoneRotation(entry) {
     const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), entry.angleX * Math.PI / 180);
     const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), entry.angleZ * Math.PI / 180);
@@ -3022,13 +3145,9 @@
       entry.angleX = 0;
       entry.angleZ = 0;
       entry.bone.quaternion.copy(entry.bindQuaternion);
+      if (entry.inputX) { entry.inputX.value = 0; entry.valX.textContent = "0°"; }
+      if (entry.inputZ) { entry.inputZ.value = 0; entry.valZ.textContent = "0°"; }
     });
-    if (poseSelectedEntry) {
-      $("poseSelX").value = 0;
-      $("poseSelZ").value = 0;
-      $("poseSelXVal").textContent = "0°";
-      $("poseSelZVal").textContent = "0°";
-    }
   }
 
   function loadPoseModel(scene) {
@@ -3037,19 +3156,24 @@
       loader.load(
         "mannequin.glb",
         (gltf) => {
-          poseModel = gltf.scene;
-          scene.add(poseModel);
-          const size = frameCameraToModel(poseModel);
-          buildBoneMarkers(poseModel, Math.max(size.y, size.x) * 0.014);
+          try {
+            poseModel = gltf.scene;
+            scene.add(poseModel);
+            const size = frameCameraToModel(poseModel);
+            buildBoneMarkers(poseModel, Math.max(size.y, size.x) * 0.014);
+            buildJointSliders();
 
-          const ground = new THREE.Mesh(
-            new THREE.CircleGeometry(1.4, 32),
-            new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 1 })
-          );
-          ground.rotation.x = -Math.PI / 2;
-          ground.position.y = 0;
-          scene.add(ground);
-          resolve();
+            const ground = new THREE.Mesh(
+              new THREE.CircleGeometry(1.4, 32),
+              new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 1 })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0;
+            scene.add(ground);
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
         },
         undefined,
         (err) => reject(err)
@@ -3065,26 +3189,8 @@
     if (poseSelectedEntry) poseSelectedEntry.marker.material.color.set(0x4c7cff);
     poseSelectedEntry = entry;
     entry.marker.material.color.set(0xffb020);
-    $("poseSelX").value = entry.angleX;
-    $("poseSelZ").value = entry.angleZ;
-    $("poseSelXVal").textContent = Math.round(entry.angleX) + "°";
-    $("poseSelZVal").textContent = Math.round(entry.angleZ) + "°";
-    $("poseSelectedPanel").style.display = "block";
-    $("poseSelectedEmptyHint").style.display = "none";
+    if (entry.rowEl) entry.rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
   }
-
-  $("poseSelX").addEventListener("input", () => {
-    if (!poseSelectedEntry) return;
-    poseSelectedEntry.angleX = parseFloat($("poseSelX").value);
-    $("poseSelXVal").textContent = Math.round(poseSelectedEntry.angleX) + "°";
-    applyBoneRotation(poseSelectedEntry);
-  });
-  $("poseSelZ").addEventListener("input", () => {
-    if (!poseSelectedEntry) return;
-    poseSelectedEntry.angleZ = parseFloat($("poseSelZ").value);
-    $("poseSelZVal").textContent = Math.round(poseSelectedEntry.angleZ) + "°";
-    applyBoneRotation(poseSelectedEntry);
-  });
 
   function setupPoseInteraction(domEl) {
     const raycaster = new THREE.Raycaster();
