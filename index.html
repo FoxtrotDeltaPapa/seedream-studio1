@@ -540,6 +540,40 @@
   .pose-joint-group {
     margin-bottom: 14px;
   }
+  .pose-object-card {
+    margin-bottom: 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .pose-object-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .pose-object-header .pose-joint-title { margin-bottom: 0; }
+  .pose-object-header button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    font-size: 14px;
+    padding: 0;
+  }
+  .pose-object-card select {
+    width: 100%;
+    margin-bottom: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 13px;
+  }
   .pose-joint-title {
     font-size: 12px;
     font-weight: 700;
@@ -719,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v79</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v80</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1201,6 +1235,14 @@
   </div>
 
   <div id="poseSliders" style="margin-top:14px;"></div>
+
+  <label class="field-label" style="margin-top:14px;">Objets (accessoires)</label>
+  <div class="empty-hint" style="margin-bottom:8px;">Ajoute une forme simple pour représenter un accessoire (bâton tenu en main, structure sous une assise...). Choisis où elle s'accroche, puis règle ses dimensions et sa position.</div>
+  <div class="row">
+    <button type="button" class="pick-btn" id="addPoseCubeBtn">➕ Cube</button>
+    <button type="button" class="pick-btn" id="addPoseCylinderBtn">➕ Cylindre</button>
+  </div>
+  <div id="poseObjectsList" style="margin-top:10px;"></div>
 
   <button class="generate-btn" id="poseCaptureBtn" style="margin-top:14px;">📸 Utiliser cette pose comme référence</button>
   <div id="poseStatus"></div>
@@ -3000,7 +3042,8 @@
     handL: "LeftHand",
     handR: "RightHand",
     footL: "LeftFoot",
-    footR: "RightFoot"
+    footR: "RightFoot",
+    pelvis: "Hips"
   };
 
   const POSE_JOINT_DEFS = [
@@ -3244,7 +3287,7 @@
   function r4(n) { return Math.round(n * 10000) / 10000; }
 
   function capturePoseCode() {
-    const data = { s: {}, b: {} };
+    const data = { s: {}, b: {}, o: [] };
     document.querySelectorAll('#poseSliders input[type="range"]').forEach(input => {
       const v = parseFloat(input.value);
       if (v) data.s[input.id.replace("poseSlider_", "")] = v; // skip zeros — compact code
@@ -3257,6 +3300,9 @@
       if (!info) return;
       const q = info.bone.quaternion;
       data.b[chain.boneKey] = [r4(q.x), r4(q.y), r4(q.z), r4(q.w)];
+    });
+    poseObjects.forEach(obj => {
+      data.o.push({ type: obj.type, attach: obj.attach, dims: obj.dims, pos: obj.pos, rot: obj.rot });
     });
     return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
   }
@@ -3281,6 +3327,10 @@
         info.bone.quaternion.set(arr[0], arr[1], arr[2], arr[3]);
         info.bone.updateMatrixWorld(true);
       });
+    }
+    if (data.o) {
+      clearAllPoseObjects();
+      data.o.forEach(saved => createPoseObject(saved.type, saved));
     }
   }
 
@@ -3757,6 +3807,164 @@
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // ---------- Props / objects (cube, cylinder) attached to the mannequin ----------
+  const OBJECT_ATTACH_OPTIONS = [
+    { key: "world", label: "Libre (sol / scène)" },
+    { key: "handL", label: "Main gauche" },
+    { key: "handR", label: "Main droite" },
+    { key: "pelvis", label: "Bassin" },
+    { key: "head", label: "Tête" }
+  ];
+  let poseObjects = [];
+  let poseObjectIdSeq = 0;
+
+  function getAttachParent(attachKey) {
+    if (attachKey === "world" || !poseModel) return poseScene;
+    const bone = findBoneByPrefix(poseModel, BONE_NAME_MAP[attachKey]);
+    return bone || poseScene;
+  }
+
+  function buildObjectGeometry(obj) {
+    if (obj.type === "cube") {
+      return new THREE.BoxGeometry(obj.dims.x, obj.dims.y, obj.dims.z);
+    }
+    return new THREE.CylinderGeometry(obj.dims.radius, obj.dims.radius, obj.dims.height, 16);
+  }
+
+  function applyPoseObjectTransform(obj) {
+    const parent = getAttachParent(obj.attach);
+    if (obj.mesh.parent !== parent) {
+      if (obj.mesh.parent) obj.mesh.parent.remove(obj.mesh);
+      parent.add(obj.mesh);
+    }
+    obj.mesh.position.set(obj.pos.x, obj.pos.y, obj.pos.z);
+    obj.mesh.rotation.set(obj.rot.x * Math.PI / 180, obj.rot.y * Math.PI / 180, obj.rot.z * Math.PI / 180);
+  }
+
+  function updatePoseObjectGeometry(obj) {
+    obj.mesh.geometry.dispose();
+    obj.mesh.geometry = buildObjectGeometry(obj);
+  }
+
+  function removePoseObject(id) {
+    const idx = poseObjects.findIndex(o => o.id === id);
+    if (idx < 0) return;
+    const obj = poseObjects[idx];
+    if (obj.mesh.parent) obj.mesh.parent.remove(obj.mesh);
+    obj.mesh.geometry.dispose();
+    obj.mesh.material.dispose();
+    poseObjects.splice(idx, 1);
+    const card = document.getElementById("poseObjCard_" + id);
+    if (card) card.remove();
+  }
+
+  function clearAllPoseObjects() {
+    poseObjects.slice().forEach(o => removePoseObject(o.id));
+  }
+
+  function buildPoseObjectCard(obj) {
+    const wrap = $("poseObjectsList");
+    const card = document.createElement("div");
+    card.className = "pose-object-card";
+    card.id = "poseObjCard_" + obj.id;
+
+    const header = document.createElement("div");
+    header.className = "pose-object-header";
+    const title = document.createElement("div");
+    title.className = "pose-joint-title";
+    title.textContent = obj.type === "cube" ? "Cube" : "Cylindre";
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "×";
+    delBtn.addEventListener("click", () => removePoseObject(obj.id));
+    header.appendChild(title);
+    header.appendChild(delBtn);
+    card.appendChild(header);
+
+    const select = document.createElement("select");
+    OBJECT_ATTACH_OPTIONS.forEach(opt => {
+      const o = document.createElement("option");
+      o.value = opt.key;
+      o.textContent = opt.label;
+      if (opt.key === obj.attach) o.selected = true;
+      select.appendChild(o);
+    });
+    select.addEventListener("change", () => {
+      obj.attach = select.value;
+      applyPoseObjectTransform(obj);
+    });
+    card.appendChild(select);
+
+    function addSlider(label, min, max, step, value, onInput) {
+      const row = document.createElement("div");
+      row.className = "pose-slider-row";
+      const lab = document.createElement("label");
+      lab.textContent = label;
+      const input = document.createElement("input");
+      input.type = "range"; input.min = min; input.max = max; input.step = step; input.value = value;
+      const val = document.createElement("span");
+      val.className = "pose-val";
+      const decimals = step < 1 ? 2 : 0;
+      val.textContent = parseFloat(value).toFixed(decimals);
+      input.addEventListener("input", () => {
+        const v = parseFloat(input.value);
+        val.textContent = v.toFixed(decimals);
+        onInput(v);
+      });
+      row.appendChild(lab); row.appendChild(input); row.appendChild(val);
+      card.appendChild(row);
+    }
+
+    if (obj.type === "cube") {
+      addSlider("Longueur (X)", 0.02, 1.5, 0.01, obj.dims.x, v => { obj.dims.x = v; updatePoseObjectGeometry(obj); });
+      addSlider("Hauteur (Y)", 0.02, 1.5, 0.01, obj.dims.y, v => { obj.dims.y = v; updatePoseObjectGeometry(obj); });
+      addSlider("Largeur (Z)", 0.02, 1.5, 0.01, obj.dims.z, v => { obj.dims.z = v; updatePoseObjectGeometry(obj); });
+    } else {
+      addSlider("Rayon", 0.005, 0.3, 0.005, obj.dims.radius, v => { obj.dims.radius = v; updatePoseObjectGeometry(obj); });
+      addSlider("Longueur", 0.05, 2, 0.01, obj.dims.height, v => { obj.dims.height = v; updatePoseObjectGeometry(obj); });
+    }
+
+    addSlider("Position X", -1, 1, 0.01, obj.pos.x, v => { obj.pos.x = v; applyPoseObjectTransform(obj); });
+    addSlider("Position Y", -1, 1, 0.01, obj.pos.y, v => { obj.pos.y = v; applyPoseObjectTransform(obj); });
+    addSlider("Position Z", -1, 1, 0.01, obj.pos.z, v => { obj.pos.z = v; applyPoseObjectTransform(obj); });
+    addSlider("Rotation X", -180, 180, 1, obj.rot.x, v => { obj.rot.x = v; applyPoseObjectTransform(obj); });
+    addSlider("Rotation Y", -180, 180, 1, obj.rot.y, v => { obj.rot.y = v; applyPoseObjectTransform(obj); });
+    addSlider("Rotation Z", -180, 180, 1, obj.rot.z, v => { obj.rot.z = v; applyPoseObjectTransform(obj); });
+
+    wrap.appendChild(card);
+  }
+
+  function createPoseObject(type, restore) {
+    poseObjectIdSeq++;
+    const id = "obj" + poseObjectIdSeq;
+    const defaults = type === "cube"
+      ? { dims: { x: 0.3, y: 0.3, z: 0.3 }, attach: "world" }
+      : { dims: { radius: 0.04, height: 0.6 }, attach: "handR" };
+    const obj = Object.assign({
+      id, type,
+      attach: defaults.attach,
+      dims: defaults.dims,
+      pos: { x: 0, y: 0, z: 0 },
+      rot: { x: 0, y: 0, z: 0 }
+    }, restore || {});
+    obj.id = id; // keep our own fresh id even when restoring
+    const mat = new THREE.MeshStandardMaterial({ color: 0x8a6d4f, roughness: 0.7 });
+    obj.mesh = new THREE.Mesh(buildObjectGeometry(obj), mat);
+    applyPoseObjectTransform(obj);
+    poseObjects.push(obj);
+    buildPoseObjectCard(obj);
+    return obj;
+  }
+
+  $("addPoseCubeBtn").addEventListener("click", () => {
+    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
+    createPoseObject("cube");
+  });
+  $("addPoseCylinderBtn").addEventListener("click", () => {
+    if (!poseLoaded) { $("poseStatus").textContent = "La scène 3D n'est pas encore chargée."; $("poseStatus").className = "err"; return; }
+    createPoseObject("cylinder");
   });
 
   function resetPoseWithModel() {
