@@ -719,7 +719,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v75</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v76</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -3609,7 +3609,7 @@
       if (!data) return;
       const p1 = lm[chain.lmParent], p2 = lm[chain.lmChild];
       // Image y grows downward; our 3D world is y-up, so flip it.
-      const photoDir = new THREE.Vector3(p2.x - p1.x, -(p2.y - p1.y), (p2.z - p1.z));
+      const photoDir = new THREE.Vector3(p2.x - p1.x, -(p2.y - p1.y), -(p2.z - p1.z));
       if (photoDir.lengthSq() < 1e-8) return;
       photoDir.normalize();
 
