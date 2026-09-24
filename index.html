@@ -647,7 +647,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v32</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v33</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -2848,7 +2848,8 @@
     });
   }
 
-  function addBone(parent, offset, length, radius) {
+  function addBone(parent, offset, length, radius, direction) {
+    direction = direction || -1; // -1 = hangs downward (limbs), 1 = extends upward (spine)
     const pivot = new THREE.Group();
     pivot.position.set(offset.x, offset.y, offset.z);
     parent.add(pivot);
@@ -2856,7 +2857,7 @@
     const geo = new THREE.CylinderGeometry(radius * 0.85, radius, length, 10);
     const mat = new THREE.MeshStandardMaterial({ color: 0xb9b0a0, roughness: 0.7 });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(0, -length / 2, 0);
+    mesh.position.set(0, direction * length / 2, 0);
     pivot.add(mesh);
 
     const jointDot = new THREE.Mesh(
@@ -2866,7 +2867,7 @@
     pivot.add(jointDot);
 
     const end = new THREE.Group();
-    end.position.set(0, -length, 0);
+    end.position.set(0, direction * length, 0);
     pivot.add(end);
 
     return { pivot, end };
@@ -2881,7 +2882,7 @@
     root.add(hips);
     poseJoints._hips = hips;
 
-    const torso = addBone(hips, { x: 0, y: 0, z: 0 }, 0.6, 0.17);
+    const torso = addBone(hips, { x: 0, y: 0, z: 0 }, 0.6, 0.17, 1);
     poseJoints.torso_x = torso.pivot;
     poseJoints.torso_y = torso.pivot;
 
@@ -2998,7 +2999,7 @@
 
     const w = wrap.clientWidth, h = wrap.clientHeight;
     poseCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-    poseCamera.position.set(0, 1.3, 3.2);
+    poseCamera.position.set(0, 1.25, 3.6);
 
     poseRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     poseRenderer.setSize(w, h);
@@ -3014,7 +3015,7 @@
     buildPoseRig(poseScene);
 
     poseControls = new THREE.OrbitControls(poseCamera, poseRenderer.domElement);
-    poseControls.target.set(0, 1.1, 0);
+    poseControls.target.set(0, 1.0, 0);
     poseControls.enablePan = false;
     poseControls.minDistance = 1.5;
     poseControls.maxDistance = 6;
@@ -3034,8 +3035,8 @@
   $("poseResetBtn").addEventListener("click", resetPose);
   $("poseCameraResetBtn").addEventListener("click", () => {
     if (!poseLoaded) return;
-    poseCamera.position.set(0, 1.3, 3.2);
-    poseControls.target.set(0, 1.1, 0);
+    poseCamera.position.set(0, 1.25, 3.6);
+    poseControls.target.set(0, 1.0, 0);
     poseControls.update();
   });
 
