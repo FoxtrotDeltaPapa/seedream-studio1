@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v81</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v87</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -838,6 +838,9 @@
     <input type="text" id="phMultiRef" placeholder="Ex : utilise la réf 1 pour la pose, réf 2 pour la couleur">
     <button type="button" class="pick-btn" id="generatePromptBtn" style="margin-top:12px;">Insérer dans le prompt</button>
   </div>
+  <div class="row" style="margin-bottom:6px;">
+    <button type="button" class="pick-btn" id="clearPromptBtn">🗑️ Effacer le prompt</button>
+  </div>
   <textarea id="prompt" placeholder='Ex : change text "Lite" into "Pro"'></textarea>
 
   <label class="field-label">Cohérence du personnage (ajoutée automatiquement)</label>
@@ -903,6 +906,7 @@
     <div class="result-actions">
       <a id="downloadLink" href="#" download="SeedreamStudio/seedream-result.png">Télécharger</a>
       <button id="copyUrlBtn">Copier l'URL</button>
+      <button id="copyResultPromptBtn">📋 Copier le prompt</button>
       <button id="sendToVideoBtn">🎬 Vers Vidéo</button>
     </div>
   </div>
@@ -1064,6 +1068,7 @@
 
 <section>
   <h2>Personnages</h2>
+  <div class="empty-hint">💡 Pour un personnage vraiment fidèle, limite-toi à 2-3 références précises (visage + corps + éventuellement une pose) plutôt que d'en empiler beaucoup — plus il y en a, plus l'attention du modèle se dilue entre elles.</div>
   <div id="characterList"></div>
   <div class="empty-hint" id="characterEmptyHint">Aucun personnage sauvegardé pour l'instant.</div>
   <button type="button" class="pick-btn" id="toggleCharForm">+ Nouveau personnage</button>
@@ -1072,10 +1077,16 @@
     <label class="field-label">Nom du personnage</label>
     <input type="text" id="charName" placeholder="Ex : Marc, aventurier (même nom pour lier les 2 planches)">
 
+    <label class="field-label">Taille du personnage (optionnel, en cm)</label>
+    <input type="number" id="charHeight" placeholder="Ex : 175" min="50" max="250" style="margin-bottom:12px;">
+
+    <label class="field-label">Traits distinctifs (optionnel)</label>
+    <input type="text" id="charDistinctive" placeholder="Ex : cicatrice sourcil gauche, grain de beauté joue droite, yeux vert vif" style="margin-bottom:12px;">
+
     <label class="field-label">Type de planche</label>
     <select id="charSheetType">
       <option value="body" selected>🧍 Corps (angles complets)</option>
-      <option value="face">🙂 Visage et expressions</option>
+      <option value="face">🙂 Visage (gros plan)</option>
     </select>
 
     <label class="field-label">Photos sources</label>
@@ -1093,7 +1104,7 @@
     </div>
 
     <label class="field-label">Prompt de la planche</label>
-    <textarea id="charPrompt">Crée une planche de référence technique (character turnaround sheet) d'UN SEUL ET MÊME personnage, organisée en grille avec un libellé clair sous chaque case : DE FACE, PROFIL GAUCHE, PROFIL DROIT, DE DOS, TROIS-QUARTS, EN PIED. Garde EXACTEMENT le même visage, la même coiffure, la même couleur de peau, la même tenue, les mêmes accessoires et les mêmes proportions corporelles sur toutes les vues — seul l'angle de caméra change, rien d'autre. Pose neutre (debout, bras le long du corps), même distance et même cadrage de caméra sur chaque vue, fond studio neutre uni identique, éclairage homogène et identique partout. Ne modifie ni l'âge, ni la morphologie, ni les couleurs, ni le style entre les vues. Rendu photoréaliste cohérent d'une case à l'autre, comme une véritable feuille de référence technique, pas une interprétation artistique différente à chaque case.</textarea>
+    <textarea id="charPrompt">Crée une planche de référence technique (character turnaround sheet) d'UN SEUL ET MÊME personnage, organisée en grille avec un libellé clair sous chaque case : DE FACE, PROFIL GAUCHE, PROFIL DROIT, DE DOS, TROIS-QUARTS, EN PIED. Garde EXACTEMENT le même visage, la même coiffure, la même couleur de peau, la même tenue, les mêmes accessoires et EXACTEMENT les mêmes proportions corporelles (taille, carrure, longueur des membres) sur toutes les vues — seul l'angle de caméra change, rien d'autre. Pose neutre (debout, bras le long du corps), même distance et même cadrage de caméra sur chaque vue, fond studio neutre uni identique, éclairage homogène et identique partout. Ne modifie ni l'âge, ni la morphologie, ni les couleurs, ni le style entre les vues. Rendu photoréaliste haute fidélité, cohérent d'une case à l'autre, comme une véritable feuille de référence technique — aucune réinterprétation artistique des proportions ou des traits d'une case à l'autre.</textarea>
 
     <label class="field-label">Cohérence du personnage (ajoutée automatiquement)</label>
     <label class="field-label" style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:14px; color:var(--text);">
@@ -1522,7 +1533,7 @@
       // name) — works whether success came from the immediate poll or a
       // later background re-check.
       if (list[idx].isCharacter && list[idx].status === "success" && !list[idx].addedToLibrary) {
-        upsertCharacterSheet(list[idx].characterName, list[idx].sheetType, list[idx].resultUrl, list[idx].prompt, list[idx].sourceImages);
+        upsertCharacterSheet(list[idx].characterName, list[idx].sheetType, list[idx].resultUrl, list[idx].prompt, list[idx].sourceImages, list[idx].characterHeight, list[idx].characterDistinctive);
         list[idx].addedToLibrary = true;
       }
       setHistory(list);
@@ -2112,8 +2123,10 @@
       useBtn.textContent = "🖼️ Image";
       useBtn.addEventListener("click", () => {
         const toAdd = [];
-        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles)" });
-        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Planche visage de \"" + c.name + "\"", kind: "planche visage/expressions" });
+        // Face first — the first reference image tends to get more weight
+        // from the model, and identity fidelity matters most for the face.
+        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Visage (gros plan) de \"" + c.name + "\"", kind: "gros plan du visage — référence fidèle et prioritaire des traits (identité) de ce personnage" + (c.distinctive ? ". Traits distinctifs : " + c.distinctive : "") });
+        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles), référence fidèle des proportions" + (c.height ? " — ce personnage mesure " + c.height + " cm" : "") });
         if (toAdd.length === 0) return;
         let added = 0;
         toAdd.forEach(ref => {
@@ -2131,8 +2144,10 @@
       useVideoBtn.textContent = "🎬 Vidéo";
       useVideoBtn.addEventListener("click", () => {
         const toAdd = [];
-        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles)" });
-        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Planche visage de \"" + c.name + "\"", kind: "planche visage/expressions" });
+        // Face first — the first reference image tends to get more weight
+        // from the model, and identity fidelity matters most for the face.
+        if (c.faceSheetUrl) toAdd.push({ url: c.faceSheetUrl, label: "🙂 Visage (gros plan) de \"" + c.name + "\"", kind: "gros plan du visage — référence fidèle et prioritaire des traits (identité) de ce personnage" + (c.distinctive ? ". Traits distinctifs : " + c.distinctive : "") });
+        if (c.bodySheetUrl) toAdd.push({ url: c.bodySheetUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles), référence fidèle des proportions" + (c.height ? " — ce personnage mesure " + c.height + " cm" : "") });
         if (toAdd.length === 0) return;
         let added = 0;
         toAdd.forEach(ref => {
@@ -2171,7 +2186,7 @@
   // Merge a freshly generated sheet into the record for this character
   // name — body and face sheets share one record so "Utiliser" can add
   // both at once.
-  function upsertCharacterSheet(name, sheetType, resultUrl, prompt, sourceImages) {
+  function upsertCharacterSheet(name, sheetType, resultUrl, prompt, sourceImages, height, distinctive) {
     const list = getCharacters();
     const key = (name || "").trim().toLowerCase();
     let idx = list.findIndex(c => c.name.trim().toLowerCase() === key);
@@ -2179,6 +2194,8 @@
       list.unshift({ name: (name || "").trim() });
       idx = 0;
     }
+    if (height) list[idx].height = height;
+    if (distinctive) list[idx].distinctive = distinctive;
     if (sheetType === "face") {
       list[idx].faceSheetUrl = resultUrl;
       list[idx].facePrompt = prompt;
@@ -2199,6 +2216,8 @@
   function loadCharacterIntoForm(c) {
     $("charForm").style.display = "block";
     $("charName").value = c.name;
+    $("charHeight").value = c.height || "";
+    $("charDistinctive").value = c.distinctive || "";
 
     // Default to whichever sheet is still missing; if both exist, keep body.
     const targetType = !c.bodySheetUrl && c.faceSheetUrl ? "face" : "body";
@@ -2220,8 +2239,8 @@
     el.style.display = el.style.display === "none" ? "block" : "none";
   });
 
-  const CHAR_TEMPLATE_BODY = "Crée une planche de référence technique (character turnaround sheet) d'UN SEUL ET MÊME personnage, organisée en grille avec un libellé clair sous chaque case : DE FACE, PROFIL GAUCHE, PROFIL DROIT, DE DOS, TROIS-QUARTS, EN PIED. Garde EXACTEMENT le même visage, la même coiffure, la même couleur de peau, la même tenue, les mêmes accessoires et les mêmes proportions corporelles sur toutes les vues — seul l'angle de caméra change, rien d'autre. Pose neutre (debout, bras le long du corps), même distance et même cadrage de caméra sur chaque vue, fond studio neutre uni identique, éclairage homogène et identique partout. Ne modifie ni l'âge, ni la morphologie, ni les couleurs, ni le style entre les vues. Rendu photoréaliste cohérent d'une case à l'autre, comme une véritable feuille de référence technique, pas une interprétation artistique différente à chaque case.";
-  const CHAR_TEMPLATE_FACE = "Crée une planche de référence technique (facial expression sheet) d'UN SEUL ET MÊME personnage, organisée en grille avec un libellé clair sous chaque case : NEUTRE, SOURIANT, RIANT, SURPRIS, EN COLÈRE, TRISTE, EFFRAYÉ, SÉRIEUX. Garde EXACTEMENT le même visage, la même coiffure, la même couleur de peau, le même teint et les mêmes traits sur toutes les cases — seule l'expression change, rien d'autre. Même cadrage visage/buste, même distance de caméra, même angle de vue sur chaque case, fond studio neutre uni identique, éclairage homogène et identique partout. Ne modifie ni l'âge, ni la morphologie du visage, ni la coiffure, ni les couleurs entre les cases. Rendu photoréaliste cohérent d'une case à l'autre, comme une véritable feuille de référence technique, pas une interprétation artistique différente à chaque case.";
+  const CHAR_TEMPLATE_BODY = "Crée une planche de référence technique (character turnaround sheet) d'UN SEUL ET MÊME personnage, organisée en grille avec un libellé clair sous chaque case : DE FACE, PROFIL GAUCHE, PROFIL DROIT, DE DOS, TROIS-QUARTS, EN PIED. Garde EXACTEMENT le même visage, la même coiffure, la même couleur de peau, la même tenue, les mêmes accessoires et EXACTEMENT les mêmes proportions corporelles (taille, carrure, longueur des membres) sur toutes les vues — seul l'angle de caméra change, rien d'autre. Pose neutre (debout, bras le long du corps), même distance et même cadrage de caméra sur chaque vue, fond studio neutre uni identique, éclairage homogène et identique partout. Ne modifie ni l'âge, ni la morphologie, ni les couleurs, ni le style entre les vues. Rendu photoréaliste haute fidélité, cohérent d'une case à l'autre, comme une véritable feuille de référence technique — aucune réinterprétation artistique des proportions ou des traits d'une case à l'autre.";
+  const CHAR_TEMPLATE_FACE = "Crée un portrait en gros plan (visage et haut des épaules) d'UN SEUL personnage — une seule image nette, pas de grille, pas de planche multiple. Cadrage serré et centré sur le visage, de face, regard direct vers la caméra, expression neutre et détendue, mise au point nette sur les yeux. Fond studio neutre uni, éclairage homogène et flatteur, sans ombre dure sur le visage. Garde EXACTEMENT les mêmes traits du visage (forme du visage, yeux, nez, bouche, structure osseuse), la même coiffure, la même couleur de peau et le même teint que les autres références de ce personnage si elles existent. Rendu photoréaliste, haute netteté — cette image doit servir d'ancre d'identité fiable pour le visage du personnage, donc aucune réinterprétation artistique des traits.";
 
   $("charSheetType").addEventListener("change", () => {
     $("charPrompt").value = $("charSheetType").value === "face" ? CHAR_TEMPLATE_FACE : CHAR_TEMPLATE_BODY;
@@ -2338,7 +2357,14 @@
     setCharStatus("Envoi de la tâche...");
 
     const charConsistencyText = buildConsistencyText("charConsistencyFace", "charConsistencyBody", "charConsistencyHair");
-    const charFinalPrompt = charConsistencyText ? prompt + "\n\n" + charConsistencyText : prompt;
+    const charHeightUsed = $("charHeight").value.trim();
+    const charHeightText = charHeightUsed ? "Le personnage mesure " + charHeightUsed + " cm de haut — respecte cette taille et des proportions corporelles réalistes et cohérentes avec cette mesure sur toutes les vues." : "";
+    const charDistinctiveUsed = $("charDistinctive").value.trim();
+    const charDistinctiveText = charDistinctiveUsed ? "Traits distinctifs à reproduire fidèlement sur toutes les vues : " + charDistinctiveUsed + "." : "";
+    let charFinalPrompt = prompt;
+    if (charConsistencyText) charFinalPrompt += "\n\n" + charConsistencyText;
+    if (charHeightText) charFinalPrompt += "\n\n" + charHeightText;
+    if (charDistinctiveText) charFinalPrompt += "\n\n" + charDistinctiveText;
     const charSourceImagesUsed = charSourceImages.slice();
     const sheetTypeUsed = $("charSheetType").value;
 
@@ -2386,6 +2412,8 @@
         nsfwChecker: $("charNsfwChecker").value,
         isCharacter: true,
         characterName: name,
+        characterHeight: charHeightUsed,
+        characterDistinctive: charDistinctiveUsed,
         sheetType: sheetTypeUsed,
         sourceImages: charSourceImagesUsed.map(u => ({ url: u, label: null })),
         addedToLibrary: false
@@ -2462,7 +2490,9 @@
 
   function buildConsistencyText(faceId, bodyId, hairId) {
     const parts = [];
-    if ($(faceId).checked) parts.push("les traits du visage");
+    if ($(faceId).checked) {
+      parts.push("les traits EXACTS du visage (forme du visage, yeux, nez, bouche, structure osseuse, teint) — identiques à la référence, sans aucune dérive artistique ni réinterprétation. Si plusieurs images de référence sont fournies, base-toi sur celle qui montre le visage le plus clairement et nettement (gros plan ou vue de face) plutôt que sur une planche multi-poses éloignée");
+    }
     if ($(bodyId).checked) parts.push("la morphologie du corps et les proportions");
     if ($(hairId).checked) parts.push("la coiffure");
     if (!parts.length) return "";
@@ -2629,6 +2659,21 @@
       setStatus("URL copiée.", "ok");
     } catch (e) {
       setStatus("Impossible de copier automatiquement, copie l'URL manuellement.", "err");
+    }
+  });
+
+  $("clearPromptBtn").addEventListener("click", () => {
+    $("prompt").value = "";
+  });
+
+  $("copyResultPromptBtn").addEventListener("click", async () => {
+    const text = $("prompt").value.trim();
+    if (!text) { setStatus("Le champ prompt est vide.", "err"); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("Prompt copié.", "ok");
+    } catch (e) {
+      setStatus("Impossible de copier automatiquement, copie le prompt manuellement.", "err");
     }
   });
 
@@ -2983,8 +3028,11 @@
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = src;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error("Impossible de charger " + src));
+      const timer = setTimeout(() => {
+        reject(new Error("Délai dépassé (15s) pour charger " + src));
+      }, 15000);
+      s.onload = () => { clearTimeout(timer); resolve(); };
+      s.onerror = () => { clearTimeout(timer); reject(new Error("Impossible de charger " + src)); };
       document.head.appendChild(s);
     });
   }
@@ -3423,9 +3471,18 @@
   function loadPoseModel(scene) {
     return new Promise((resolve, reject) => {
       const loader = new THREE.GLTFLoader();
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("Délai dépassé (20s) pour charger mannequin.glb"));
+      }, 20000);
       loader.load(
         "mannequin.glb",
         (gltf) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           try {
             poseModel = gltf.scene;
             const { size, center } = frameCameraToModel(poseModel);
@@ -3457,7 +3514,7 @@
           }
         },
         undefined,
-        (err) => reject(err)
+        (err) => { if (!settled) { settled = true; clearTimeout(timer); reject(err); } }
       );
     });
   }
