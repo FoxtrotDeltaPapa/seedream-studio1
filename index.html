@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v87</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v88</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1615,6 +1615,15 @@
     info.appendChild(promptEl);
     info.appendChild(meta);
 
+    if (entry.status === "fail" && entry.failReason) {
+      const reasonEl = document.createElement("div");
+      reasonEl.className = "empty-hint";
+      reasonEl.style.color = "var(--err)";
+      reasonEl.style.marginTop = "2px";
+      reasonEl.textContent = entry.failReason;
+      info.appendChild(reasonEl);
+    }
+
     if (entry.status === "pending") {
       const elapsed = (Date.now() - entry.timestamp) / 1000;
       const estSeconds = getDurationEstimates()[durationKeyFor(entry)];
@@ -1810,7 +1819,7 @@
         const result = JSON.parse(data.data.resultJson);
         updateHistoryEntry(taskId, { status: "success", resultUrl: result.resultUrls[0] });
       } else if (state === "fail") {
-        updateHistoryEntry(taskId, { status: "fail" });
+        updateHistoryEntry(taskId, { status: "fail", failReason: data.data.failMsg || "" });
       }
       // if still "waiting", leave as pending — user can check again later
     } catch (e) {
@@ -2441,8 +2450,12 @@
       learnDuration("character", (Date.now() - startedAt) / 1000);
       checkBalance();
     }).catch((err) => {
-      if (err.message !== "NETWORK_LOST") {
-        updateHistoryEntry(taskId, { status: "fail" });
+      if (err.message === "NETWORK_LOST" || err.message === "TIMEOUT") {
+        // The task may well still be running or have finished server-side
+        // — leave it pending so checkAllPendingHistory() picks it back up,
+        // instead of wrongly marking a still-running generation as failed.
+      } else {
+        updateHistoryEntry(taskId, { status: "fail", failReason: err.message || "" });
       }
     });
   });
@@ -2536,7 +2549,7 @@
         throw new Error(data.data.failMsg || "La génération a échoué");
       }
     }
-    throw new Error("Délai dépassé, la tâche prend plus de temps que prévu.");
+    throw new Error("TIMEOUT");
   }
 
   $("generateBtn").addEventListener("click", async () => {
@@ -2644,8 +2657,12 @@
         }
       }
     }).catch((err) => {
-      if (err.message !== "NETWORK_LOST") {
-        updateHistoryEntry(taskId, { status: "fail" });
+      if (err.message === "NETWORK_LOST" || err.message === "TIMEOUT") {
+        // The task may well still be running or have finished server-side
+        // — leave it pending so checkAllPendingHistory() picks it back up,
+        // instead of wrongly marking a still-running generation as failed.
+      } else {
+        updateHistoryEntry(taskId, { status: "fail", failReason: err.message || "" });
       }
       // NETWORK_LOST: leave pending — checkAllPendingHistory() will
       // pick it up next time the app is opened.
@@ -2990,8 +3007,12 @@
         }
       }
     }).catch((err) => {
-      if (err.message !== "NETWORK_LOST") {
-        updateHistoryEntry(taskId, { status: "fail" });
+      if (err.message === "NETWORK_LOST" || err.message === "TIMEOUT") {
+        // The task may well still be running or have finished server-side
+        // — leave it pending so checkAllPendingHistory() picks it back up,
+        // instead of wrongly marking a still-running generation as failed.
+      } else {
+        updateHistoryEntry(taskId, { status: "fail", failReason: err.message || "" });
       }
     });
   });
