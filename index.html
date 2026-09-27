@@ -164,10 +164,10 @@
     border: 1px solid var(--border);
     color: var(--text-dim);
     border-radius: 10px;
-    padding: 10px 4px;
-    font-size: 12px;
+    padding: 8px 2px;
+    font-size: 10.5px;
     font-weight: 700;
-    line-height: 1.25;
+    line-height: 1.2;
   }
   .tab-btn.active {
     background: var(--accent);
@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v88</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v89</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -779,10 +779,84 @@
 </section>
 
 <div class="tab-bar">
-  <button type="button" class="tab-btn active" id="tabBtnGeneration">Image</button>
-  <button type="button" class="tab-btn" id="tabBtnVideo">Vidéo</button>
+  <button type="button" class="tab-btn" id="tabBtnTxt2Img">Texte→Image</button>
+  <button type="button" class="tab-btn active" id="tabBtnGeneration">Image→Image</button>
+  <button type="button" class="tab-btn" id="tabBtnVideo">Image→Vidéo</button>
   <button type="button" class="tab-btn" id="tabBtnCharacters">Personnages</button>
   <button type="button" class="tab-btn" id="tabBtnPose">🦴 Pose</button>
+</div>
+
+<div id="tabTxt2Img" class="tab-panel" style="display:none;">
+
+<section id="txt2imgSection">
+  <h2>Texte → Image</h2>
+  <div class="empty-hint" style="margin-bottom:10px;">Génère une image directement depuis une description, sans image de référence.</div>
+
+  <div class="row" style="margin-bottom:6px;">
+    <button type="button" class="pick-btn" id="clearT2iPromptBtn">🗑️ Effacer le prompt</button>
+  </div>
+  <textarea id="t2iPrompt" placeholder="Ex : un renard roux assis dans une forêt enneigée au lever du soleil, style photo réaliste"></textarea>
+
+  <div class="row">
+    <div>
+      <label class="field-label">Format</label>
+      <select id="t2iAspectRatio">
+        <option value="1:1">1:1</option>
+        <option value="4:3">4:3</option>
+        <option value="3:4">3:4</option>
+        <option value="16:9">16:9</option>
+        <option value="9:16">9:16</option>
+        <option value="2:3">2:3</option>
+        <option value="3:2">3:2</option>
+        <option value="21:9">21:9</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Qualité</label>
+      <select id="t2iQuality">
+        <option value="basic">Basic (1K)</option>
+        <option value="high" selected>High (2K)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label class="field-label">Sortie</label>
+      <select id="t2iOutputFormat">
+        <option value="png">PNG</option>
+        <option value="jpeg">JPEG</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Filtre NSFW</label>
+      <select id="t2iNsfwChecker">
+        <option value="true">Activé</option>
+        <option value="false">Désactivé</option>
+      </select>
+    </div>
+  </div>
+
+  <button class="generate-btn" id="t2iGenerateBtn" style="margin-top:12px;">Générer</button>
+  <div id="t2iStatus"></div>
+
+  <div id="t2iResultWrap" style="display:none;">
+    <img id="t2iResultImg" alt="Résultat" referrerpolicy="no-referrer">
+    <div class="result-actions">
+      <a id="t2iDownloadLink" href="#" download="SeedreamStudio/seedream-result.png">Télécharger</a>
+      <button id="t2iCopyUrlBtn">Copier l'URL</button>
+      <button id="t2iCopyPromptBtn">📋 Copier le prompt</button>
+      <button id="t2iSendToVideoBtn">🎬 Vers Vidéo</button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Historique</h2>
+  <div id="historyListTxt2Img"></div>
+  <div class="empty-hint" id="historyEmptyHintTxt2Img">Aucune génération pour l'instant.</div>
+</section>
+
 </div>
 
 <div id="tabGeneration" class="tab-panel">
@@ -1800,7 +1874,8 @@
 
   function renderHistory() {
     const list = getHistory();
-    renderHistoryInto("historyListGen", "historyEmptyHintGen", list.filter(e => !e.isCharacter && !e.isVideo));
+    renderHistoryInto("historyListTxt2Img", "historyEmptyHintTxt2Img", list.filter(e => e.isTxt2Img));
+    renderHistoryInto("historyListGen", "historyEmptyHintGen", list.filter(e => !e.isCharacter && !e.isVideo && !e.isTxt2Img));
     renderHistoryInto("historyListVideo", "historyEmptyHintVideo", list.filter(e => e.isVideo));
     renderHistoryInto("historyListChar", "historyEmptyHintChar", list.filter(e => e.isCharacter));
   }
@@ -2667,6 +2742,144 @@
       // NETWORK_LOST: leave pending — checkAllPendingHistory() will
       // pick it up next time the app is opened.
     });
+  });
+
+  function setT2iStatus(msg, kind) {
+    const el = $("t2iStatus");
+    el.textContent = msg;
+    el.className = kind || "";
+  }
+
+  $("clearT2iPromptBtn").addEventListener("click", () => {
+    $("t2iPrompt").value = "";
+  });
+
+  $("t2iGenerateBtn").addEventListener("click", async () => {
+    const apiKey = $("apiKey").value.trim();
+    const prompt = $("t2iPrompt").value.trim();
+
+    if (!apiKey) { setT2iStatus("Entre ta clé API.", "err"); return; }
+    if (!prompt) { setT2iStatus("Entre un prompt.", "err"); return; }
+
+    const btn = $("t2iGenerateBtn");
+    btn.disabled = true;
+    btn.classList.add("working");
+    btn.textContent = "Envoi...";
+    setT2iStatus("Envoi de la tâche...");
+
+    const qualityUsed = $("t2iQuality").value;
+    const outputFormatUsed = $("t2iOutputFormat").value;
+    const balanceBeforeGen = currentBalanceValue;
+
+    const body = {
+      model: "seedream/5-pro-text-to-image",
+      input: {
+        prompt: prompt,
+        aspect_ratio: $("t2iAspectRatio").value,
+        quality: qualityUsed,
+        output_format: outputFormatUsed,
+        nsfw_checker: $("t2iNsfwChecker").value === "true"
+      }
+    };
+
+    let taskId = null;
+    try {
+      const createRes = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify(body)
+      });
+      const createData = await createRes.json();
+      if (createData.code !== 200) {
+        throw new Error(createData.msg || "Échec de la création de la tâche");
+      }
+      taskId = createData.data.taskId;
+      const startedAt = Date.now();
+
+      addHistoryEntry({
+        taskId: taskId,
+        prompt: prompt,
+        timestamp: startedAt,
+        status: "pending",
+        resultUrl: null,
+        aspectRatio: $("t2iAspectRatio").value,
+        quality: qualityUsed,
+        outputFormat: outputFormatUsed,
+        nsfwChecker: $("t2iNsfwChecker").value,
+        isTxt2Img: true
+      });
+
+      setT2iStatus("Tâche envoyée — tu peux lancer une autre génération, suis celle-ci dans l'Historique.", "ok");
+    } catch (err) {
+      setT2iStatus("Erreur : " + err.message, "err");
+      btn.disabled = false;
+      btn.classList.remove("working");
+      btn.textContent = "Générer";
+      return;
+    }
+
+    btn.disabled = false;
+    btn.classList.remove("working");
+    btn.textContent = "Générer";
+
+    pollTask(taskId, apiKey, () => {}).then(async (resultUrl) => {
+      $("t2iResultImg").src = resultUrl;
+      $("t2iDownloadLink").href = resultUrl;
+      $("t2iDownloadLink").download = downloadFilename(outputFormatUsed === "jpeg" ? "jpg" : "png");
+      $("t2iResultWrap").style.display = "block";
+      updateHistoryEntry(taskId, { status: "success", resultUrl: resultUrl });
+      learnDuration("image", (Date.now() - startedAt) / 1000);
+      await checkBalance();
+      if (balanceBeforeGen != null && currentBalanceValue != null) {
+        const used = balanceBeforeGen - currentBalanceValue;
+        if (used > 0) {
+          const estimates = getCostEstimates();
+          estimates[qualityUsed] = used;
+          setCostEstimates(estimates);
+        }
+      }
+    }).catch((err) => {
+      if (err.message === "NETWORK_LOST" || err.message === "TIMEOUT") {
+        // Leave pending — checkAllPendingHistory() will pick it back up.
+      } else {
+        updateHistoryEntry(taskId, { status: "fail", failReason: err.message || "" });
+      }
+    });
+  });
+
+  $("t2iCopyUrlBtn").addEventListener("click", async () => {
+    const url = $("t2iDownloadLink").href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setT2iStatus("URL copiée.", "ok");
+    } catch (e) {
+      setT2iStatus("Impossible de copier automatiquement, copie l'URL manuellement.", "err");
+    }
+  });
+
+  $("t2iCopyPromptBtn").addEventListener("click", async () => {
+    const text = $("t2iPrompt").value.trim();
+    if (!text) { setT2iStatus("Le champ prompt est vide.", "err"); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      setT2iStatus("Prompt copié.", "ok");
+    } catch (e) {
+      setT2iStatus("Impossible de copier automatiquement, copie le prompt manuellement.", "err");
+    }
+  });
+
+  $("t2iSendToVideoBtn").addEventListener("click", () => {
+    const url = $("t2iResultImg").src;
+    if (!url) return;
+    if (videoReferenceImages.length < MAX_VIDEO_REFERENCE_IMAGES) {
+      videoReferenceImages.push({ url: url, label: null });
+      renderVideoGallery();
+    }
+    switchTab("video");
+    $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   $("copyUrlBtn").addEventListener("click", async () => {
@@ -4132,16 +4345,19 @@
 
   // ---------- Tabs ----------
   function switchTab(tab) {
+    $("tabTxt2Img").style.display = tab === "txt2img" ? "block" : "none";
     $("tabGeneration").style.display = tab === "generation" ? "block" : "none";
     $("tabVideo").style.display = tab === "video" ? "block" : "none";
     $("tabCharacters").style.display = tab === "characters" ? "block" : "none";
     $("tabPose").style.display = tab === "pose" ? "block" : "none";
+    $("tabBtnTxt2Img").classList.toggle("active", tab === "txt2img");
     $("tabBtnGeneration").classList.toggle("active", tab === "generation");
     $("tabBtnVideo").classList.toggle("active", tab === "video");
     $("tabBtnCharacters").classList.toggle("active", tab === "characters");
     $("tabBtnPose").classList.toggle("active", tab === "pose");
     if (tab === "pose") initPoseEditor();
   }
+  $("tabBtnTxt2Img").addEventListener("click", () => switchTab("txt2img"));
   $("tabBtnGeneration").addEventListener("click", () => switchTab("generation"));
   $("tabBtnVideo").addEventListener("click", () => switchTab("video"));
   $("tabBtnCharacters").addEventListener("click", () => switchTab("characters"));
@@ -4151,6 +4367,10 @@
   $("resultImg").classList.add("thumb-clickable");
   $("resultImg").addEventListener("click", () => {
     if ($("resultImg").src) openLightbox($("resultImg").src);
+  });
+  $("t2iResultImg").classList.add("thumb-clickable");
+  $("t2iResultImg").addEventListener("click", () => {
+    if ($("t2iResultImg").src) openLightbox($("t2iResultImg").src);
   });
   loadKey();
   renderPrompts();
