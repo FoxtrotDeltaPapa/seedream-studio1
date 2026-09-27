@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v89</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v90</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -792,7 +792,18 @@
   <h2>Texte → Image</h2>
   <div class="empty-hint" style="margin-bottom:10px;">Génère une image directement depuis une description, sans image de référence.</div>
 
-  <div class="row" style="margin-bottom:6px;">
+  <label class="field-label">Modèle</label>
+  <select id="t2iModel">
+    <option value="seedream" selected>Seedream 5 Pro</option>
+    <option value="nanobanana_pro">Nano Banana Pro (Google)</option>
+    <option value="gpt_image_2">GPT Image 2 (OpenAI)</option>
+    <option value="flux_2">Flux-2 Pro</option>
+    <option value="grok_imagine">Grok Imagine</option>
+  </select>
+  <button type="button" class="pick-btn" id="t2iModelInfoBtn" style="margin-top:8px;">ℹ️ Comparer les modèles</button>
+  <div id="t2iModelInfo" class="empty-hint" style="display:none; margin-top:8px;"></div>
+
+  <div class="row" style="margin-bottom:6px; margin-top:12px;">
     <button type="button" class="pick-btn" id="clearT2iPromptBtn">🗑️ Effacer le prompt</button>
   </div>
   <textarea id="t2iPrompt" placeholder="Ex : un renard roux assis dans une forêt enneigée au lever du soleil, style photo réaliste"></textarea>
@@ -874,7 +885,16 @@
 <section id="generationSection">
   <h2>Génération</h2>
 
-  <label class="field-label">Images de référence (jusqu'à 10)</label>
+  <label class="field-label">Modèle</label>
+  <select id="i2iModel">
+    <option value="seedream" selected>Seedream 5 Pro</option>
+    <option value="nanobanana_pro">Nano Banana Pro (Google)</option>
+    <option value="gpt_image_2">GPT Image 2 (OpenAI)</option>
+  </select>
+  <button type="button" class="pick-btn" id="i2iModelInfoBtn" style="margin-top:8px;">ℹ️ Comparer les modèles</button>
+  <div id="i2iModelInfo" class="empty-hint" style="display:none; margin-top:8px;"></div>
+
+  <label class="field-label" style="margin-top:12px;">Images de référence (jusqu'à 10)</label>
   <div class="image-source">
     <button type="button" class="pick-btn" id="pickImageBtn">📷 Ajouter une photo</button>
     <input type="file" id="imageFile" accept="*/*" multiple style="display:none;">
@@ -1013,8 +1033,13 @@
     <option value="wan/3-0-video" selected>Wan 3.0 — tout-en-un (ID à vérifier)</option>
     <option value="wan/2-7-text-to-video">Wan 2.7 — Texte vers vidéo (confirmé)</option>
     <option value="wan/2-7-image-to-video">Wan 2.7 — Image vers vidéo (confirmé)</option>
+    <option value="kling/v2-1-standard">Kling 2.1 Standard (Kuaishou)</option>
+    <option value="hailuo/2-3-image-to-video-pro">Hailuo 2.3 Pro (MiniMax)</option>
+    <option value="bytedance/v1-pro-fast-image-to-video">Seedance (Bytedance V1 Pro Fast)</option>
     <option value="custom">Autre / ID personnalisé</option>
   </select>
+  <button type="button" class="pick-btn" id="videoModelInfoBtn" style="margin-top:8px;">ℹ️ Comparer les modèles</button>
+  <div id="videoModelInfo" class="empty-hint" style="display:none; margin-top:8px;"></div>
   <div id="videoModelCustomWrap" style="display:none; margin-top:8px;">
     <label class="field-label">ID du modèle kie.ai</label>
     <input type="text" id="videoModelCustom" placeholder="ex : wan/3-0-video">
@@ -2657,17 +2682,7 @@
 
     const finalPrompt = [refContextText, prompt, consistencyText].filter(Boolean).join("\n\n");
 
-    const body = {
-      model: "seedream/5-pro-image-to-image",
-      input: {
-        prompt: finalPrompt,
-        image_urls: referenceImages.map(r => r.url),
-        aspect_ratio: $("aspectRatio").value,
-        quality: qualityUsed,
-        output_format: outputFormatUsed,
-        nsfw_checker: $("nsfwChecker").value === "true"
-      }
-    };
+    const body = buildI2IBody($("i2iModel").value, finalPrompt, referenceImages.map(r => r.url), $("aspectRatio").value, qualityUsed, outputFormatUsed, $("nsfwChecker").value === "true");
 
     let taskId = null;
     try {
@@ -2744,6 +2759,101 @@
     });
   });
 
+  function buildVideoBody(model, prompt, imageUrls, durationRaw, resolution, aspectRatio, audio, nsfwChecker) {
+    const firstImage = imageUrls.length ? imageUrls[0] : "";
+    if (model === "kling/v2-1-standard") {
+      // Kling only accepts 5 or 10 seconds.
+      const dur = String(parseInt(durationRaw, 10)) === "10" ? "10" : "5";
+      return { model: model, input: { prompt: prompt, image_url: firstImage, duration: dur } };
+    }
+    if (model === "hailuo/2-3-image-to-video-pro") {
+      // Hailuo only accepts 768P or 1080P.
+      const res = resolution === "1080P" ? "1080P" : "768P";
+      const dur = String(parseInt(durationRaw, 10)) === "10" ? "10" : "6";
+      return { model: model, input: { prompt: prompt, image_url: firstImage, duration: dur, resolution: res } };
+    }
+    if (model === "bytedance/v1-pro-fast-image-to-video") {
+      const dur = String(parseInt(durationRaw, 10)) === "10" ? "10" : "5";
+      return { model: model, input: { prompt: prompt, image_url: firstImage, resolution: resolution.toLowerCase(), duration: dur } };
+    }
+    // Default: Wan-style schema (Wan 3.0 / Wan 2.7 / any custom ID).
+    const input = {
+      prompt: prompt,
+      duration: parseInt(durationRaw, 10),
+      resolution: resolution,
+      aspect_ratio: aspectRatio,
+      audio: audio,
+      nsfw_checker: nsfwChecker
+    };
+    if (imageUrls.length) input.reference_image_urls = imageUrls;
+    return { model: model, input: input };
+  }
+
+  function buildI2IBody(modelKey, prompt, imageUrls, aspectRatio, quality, outputFormat, nsfwChecker) {
+    if (modelKey === "nanobanana_pro") {
+      return { model: "nano-banana-pro", input: { prompt: prompt, image_input: imageUrls, aspect_ratio: aspectRatio } };
+    }
+    if (modelKey === "gpt_image_2") {
+      return { model: "gpt-image-2-image-to-image", input: { prompt: prompt, input_urls: imageUrls, aspect_ratio: aspectRatio } };
+    }
+    // Default: Seedream 5 Pro
+    return {
+      model: "seedream/5-pro-image-to-image",
+      input: { prompt: prompt, image_urls: imageUrls, aspect_ratio: aspectRatio, quality: quality, output_format: outputFormat, nsfw_checker: nsfwChecker }
+    };
+  }
+
+  function buildT2IBody(modelKey, prompt, aspectRatio, quality, outputFormat, nsfwChecker, resolutionMap) {
+    if (modelKey === "nanobanana_pro") {
+      return { model: "nano-banana-pro", input: { prompt: prompt, aspect_ratio: aspectRatio } };
+    }
+    if (modelKey === "gpt_image_2") {
+      return { model: "gpt-image-2-text-to-image", input: { prompt: prompt, aspect_ratio: aspectRatio, resolution: resolutionMap[quality] || "1K" } };
+    }
+    if (modelKey === "flux_2") {
+      return { model: "flux-2/pro-text-to-image", input: { prompt: prompt, aspect_ratio: aspectRatio, resolution: resolutionMap[quality] || "1K", nsfw_checker: nsfwChecker } };
+    }
+    if (modelKey === "grok_imagine") {
+      return { model: "grok-imagine/text-to-image", input: { prompt: prompt, aspect_ratio: aspectRatio, nsfw_checker: nsfwChecker } };
+    }
+    // Default: Seedream 5 Pro
+    return {
+      model: "seedream/5-pro-text-to-image",
+      input: { prompt: prompt, aspect_ratio: aspectRatio, quality: quality, output_format: outputFormat, nsfw_checker: nsfwChecker }
+    };
+  }
+
+  // ---------- Model catalog (descriptions shown in the "Comparer les
+  // modèles" panels) — based on a comparative survey across several 2026
+  // benchmarks, not hands-on testing of every model myself. ----------
+  const MODEL_DESCRIPTIONS = {
+    seedream: "Seedream 5 Pro — rapide et économique (quelques secondes par image), bon compromis qualité/vitesse/cohérence de personnage. Modèle par défaut de l'app, déjà éprouvé sur tes générations.",
+    nanobanana_pro: "Nano Banana Pro (Google) — photoréalisme et rendu de texte parmi les meilleurs du marché, très bon pour portraits/produits et préservation d'identité. Plus lent et légèrement plus cher que Seedream.",
+    gpt_image_2: "GPT Image 2 (OpenAI) — la meilleure qualité générale et le meilleur suivi de prompt complexe mesurés en 2026, texte quasi parfait. En contrepartie : le plus lent (souvent 1-2 min) et le plus cher des modèles listés ici.",
+    flux_2: "Flux-2 Pro (Black Forest Labs) — très bon photoréalisme et contrôle fin des couleurs/matières, bon compromis qualité/vitesse pour de l'édition précise.",
+    grok_imagine: "Grok Imagine (xAI) — rapide, bon sur des styles variés (dont l'anime), modération généralement moins stricte sur certains contenus que la moyenne.",
+    kling: "Kling 2.1 Standard (Kuaishou) — bonne fidélité visuelle générale, un des favoris pour la qualité du mouvement humain.",
+    hailuo: "Hailuo 2.3 Pro (MiniMax) — bon rapport qualité/prix pour du contenu court (réseaux sociaux), physique et expressions crédibles.",
+    seedance: "Seedance (Bytedance V1 Pro Fast) — très bonne cohérence de personnage d'une frame à l'autre, rapide, bon rapport qualité/prix pour de la vidéo courte."
+  };
+  function toggleModelInfo(btnId, panelId, keys) {
+    $(btnId).addEventListener("click", () => {
+      const panel = $(panelId);
+      if (panel.style.display === "block") { panel.style.display = "none"; return; }
+      panel.innerHTML = "";
+      keys.forEach(k => {
+        const p = document.createElement("div");
+        p.style.marginBottom = "8px";
+        p.textContent = MODEL_DESCRIPTIONS[k] || k;
+        panel.appendChild(p);
+      });
+      panel.style.display = "block";
+    });
+  }
+  toggleModelInfo("t2iModelInfoBtn", "t2iModelInfo", ["seedream", "nanobanana_pro", "gpt_image_2", "flux_2", "grok_imagine"]);
+  toggleModelInfo("i2iModelInfoBtn", "i2iModelInfo", ["seedream", "nanobanana_pro", "gpt_image_2"]);
+  toggleModelInfo("videoModelInfoBtn", "videoModelInfo", ["kling", "hailuo", "seedance"]);
+
   function setT2iStatus(msg, kind) {
     const el = $("t2iStatus");
     el.textContent = msg;
@@ -2770,17 +2880,10 @@
     const qualityUsed = $("t2iQuality").value;
     const outputFormatUsed = $("t2iOutputFormat").value;
     const balanceBeforeGen = currentBalanceValue;
+    const aspectRatioUsed = $("t2iAspectRatio").value;
+    const resolutionMap = { basic: "1K", high: "2K" };
 
-    const body = {
-      model: "seedream/5-pro-text-to-image",
-      input: {
-        prompt: prompt,
-        aspect_ratio: $("t2iAspectRatio").value,
-        quality: qualityUsed,
-        output_format: outputFormatUsed,
-        nsfw_checker: $("t2iNsfwChecker").value === "true"
-      }
-    };
+    const body = buildT2IBody($("t2iModel").value, prompt, aspectRatioUsed, qualityUsed, outputFormatUsed, $("t2iNsfwChecker").value === "true", resolutionMap);
 
     let taskId = null;
     try {
@@ -3146,17 +3249,7 @@
 
     const finalPrompt = [videoRefContextText, prompt, consistencyText].filter(Boolean).join("\n\n");
 
-    const input = {
-      prompt: finalPrompt,
-      duration: parseInt($("videoDuration").value, 10),
-      resolution: resolutionUsed,
-      aspect_ratio: $("videoAspectRatio").value,
-      audio: $("videoAudio").value === "true",
-      nsfw_checker: $("videoNsfwChecker").value === "true"
-    };
-    if (videoReferenceImages.length) input.reference_image_urls = videoReferenceImages.map(r => r.url);
-
-    const body = { model: model, input: input };
+    const body = buildVideoBody(model, finalPrompt, videoReferenceImages.map(r => r.url), $("videoDuration").value, resolutionUsed, $("videoAspectRatio").value, $("videoAudio").value === "true", $("videoNsfwChecker").value === "true");
 
     let taskId = null;
     try {
