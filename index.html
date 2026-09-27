@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v90</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v92</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1188,7 +1188,15 @@
       <option value="face">🙂 Visage (gros plan)</option>
     </select>
 
-    <label class="field-label">Photos sources</label>
+    <label class="field-label">Modèle</label>
+    <select id="charModel">
+      <option value="seedream" selected>Seedream 5 Pro</option>
+      <option value="nanobanana_pro">Nano Banana Pro (Google) — meilleure fidélité d'identité</option>
+    </select>
+    <button type="button" class="pick-btn" id="charModelInfoBtn" style="margin-top:8px;">ℹ️ Comparer les modèles</button>
+    <div id="charModelInfo" class="empty-hint" style="display:none; margin-top:8px;"></div>
+
+    <label class="field-label" style="margin-top:12px;">Photos sources</label>
     <button type="button" class="pick-btn" id="charPickBtn">📷 Ajouter des photos</button>
     <input type="file" id="charImageFile" accept="*/*" multiple style="display:none;">
     <div id="charImageGallery" class="image-gallery"></div>
@@ -2477,17 +2485,7 @@
     const charSourceImagesUsed = charSourceImages.slice();
     const sheetTypeUsed = $("charSheetType").value;
 
-    const body = {
-      model: "seedream/5-pro-image-to-image",
-      input: {
-        prompt: charFinalPrompt,
-        image_urls: charSourceImagesUsed,
-        aspect_ratio: $("charAspectRatio").value,
-        quality: $("charQuality").value,
-        output_format: $("charOutputFormat").value,
-        nsfw_checker: $("charNsfwChecker").value === "true"
-      }
-    };
+    const body = buildI2IBody($("charModel").value, charFinalPrompt, charSourceImagesUsed, $("charAspectRatio").value, $("charQuality").value, $("charOutputFormat").value, $("charNsfwChecker").value === "true");
 
     let taskId = null;
     try {
@@ -2852,6 +2850,7 @@
   }
   toggleModelInfo("t2iModelInfoBtn", "t2iModelInfo", ["seedream", "nanobanana_pro", "gpt_image_2", "flux_2", "grok_imagine"]);
   toggleModelInfo("i2iModelInfoBtn", "i2iModelInfo", ["seedream", "nanobanana_pro", "gpt_image_2"]);
+  toggleModelInfo("charModelInfoBtn", "charModelInfo", ["seedream", "nanobanana_pro"]);
   toggleModelInfo("videoModelInfoBtn", "videoModelInfo", ["kling", "hailuo", "seedance"]);
 
   function setT2iStatus(msg, kind) {
