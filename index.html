@@ -753,7 +753,7 @@
 <body>
 
 <header>
-  <div class="mark">Générateur perso · <span id="appVersion">v94</span></div>
+  <div class="mark">Générateur perso · <span id="appVersion">v95</span></div>
   <h1>Seedream Studio</h1>
   <p>Image-to-image via l'API kie.ai. Enregistre tes prompts préférés pour les réutiliser en un clic.</p>
 </header>
@@ -1857,12 +1857,26 @@
       const useBtn = document.createElement("button");
       useBtn.textContent = "Voir";
       useBtn.addEventListener("click", () => {
-        $("resultImg").src = entry.resultUrl;
-        $("downloadLink").href = entry.resultUrl;
-        $("downloadLink").download = downloadFilename(entry.outputFormat === "jpeg" ? "jpg" : "png");
-        $("resultWrap").style.display = "block";
-        switchTab("generation");
-        $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+        const ext = entry.outputFormat === "jpeg" ? "jpg" : "png";
+        if (entry.isCharacter) {
+          // Character sheets have no result panel — open the full image
+          // without leaving the Personnages tab.
+          openLightbox(entry.resultUrl);
+        } else if (entry.isTxt2Img) {
+          $("t2iResultImg").src = entry.resultUrl;
+          $("t2iDownloadLink").href = entry.resultUrl;
+          $("t2iDownloadLink").download = downloadFilename(ext);
+          $("t2iResultWrap").style.display = "block";
+          switchTab("txt2img");
+          $("t2iResultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          $("resultImg").src = entry.resultUrl;
+          $("downloadLink").href = entry.resultUrl;
+          $("downloadLink").download = downloadFilename(ext);
+          $("resultWrap").style.display = "block";
+          switchTab("generation");
+          $("resultWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       });
       actions.appendChild(useBtn);
 
@@ -2245,13 +2259,13 @@
   async function blobToJpegDataUrl(blob) {
     try {
       const bmp = await createImageBitmap(blob);
-      const maxSide = 2048;
+      const maxSide = 1600;
       const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(bmp.width * scale);
       canvas.height = Math.round(bmp.height * scale);
       canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.92);
+      return canvas.toDataURL("image/jpeg", 0.85);
     } catch (e) {
       return await new Promise((resolve, reject) => {
         const fr = new FileReader();
@@ -2264,7 +2278,7 @@
   // A public link is needed to use a sheet as a reference image. If the
   // sheet is stored in the app, send it to kie.ai again (links from the
   // upload service are temporary too, so a fresh one is reused for 2 days).
-  async function resolveSheetRefUrl(c, type) {
+  async function resolveSheetRefUrl(c, type, warnings) {
     const list = getCharacters();
     const idx = findCharIndex(list, c.name);
     const cur = idx !== -1 ? list[idx] : c;
@@ -2275,9 +2289,19 @@
     const blob = await idbGet(sheetKey(cur.name, type));
     if (!blob) return cur[type + "SheetUrl"] || null;
     const apiKey = $("apiKey").value.trim();
-    if (!apiKey) throw new Error("Entre ta clé API : la planche doit être renvoyée vers kie.ai.");
-    const dataUrl = await blobToJpegDataUrl(blob);
-    const url = await uploadDataUrl(dataUrl, apiKey, "sheet-" + type);
+    const typeLabel = type === "face" ? "visage" : "corps";
+    let url;
+    try {
+      if (!apiKey) throw new Error("clé API manquante");
+      const dataUrl = await blobToJpegDataUrl(blob);
+      url = await uploadDataUrl(dataUrl, apiKey, "sheet-" + type);
+    } catch (err) {
+      if (cur[type + "SheetUrl"]) {
+        if (warnings) warnings.push("Planche " + typeLabel + " : renvoi vers kie.ai impossible (" + err.message + "), lien d'origine utilisé (il a peut-être expiré).");
+        return cur[type + "SheetUrl"];
+      }
+      throw new Error("planche " + typeLabel + " : renvoi vers kie.ai impossible (" + err.message + ")");
+    }
     const list2 = getCharacters();
     const i2 = findCharIndex(list2, cur.name);
     if (i2 !== -1) {
@@ -2287,13 +2311,13 @@
     }
     return url;
   }
-  async function buildCharRefs(c) {
+  async function buildCharRefs(c, warnings) {
     const toAdd = [];
     // Face first — the first reference image tends to get more weight
     // from the model, and identity fidelity matters most for the face.
-    const faceUrl = await resolveSheetRefUrl(c, "face");
+    const faceUrl = await resolveSheetRefUrl(c, "face", warnings);
     if (faceUrl) toAdd.push({ url: faceUrl, label: "🙂 Visage (gros plan) de \"" + c.name + "\"", kind: "gros plan du visage — référence fidèle et prioritaire des traits (identité) de ce personnage" + (c.distinctive ? ". Traits distinctifs : " + c.distinctive : "") });
-    const bodyUrl = await resolveSheetRefUrl(c, "body");
+    const bodyUrl = await resolveSheetRefUrl(c, "body", warnings);
     if (bodyUrl) toAdd.push({ url: bodyUrl, label: "🧍 Planche corps de \"" + c.name + "\"", kind: "planche corps (plusieurs angles), référence fidèle des proportions" + (c.height ? " — ce personnage mesure " + c.height + " cm" : "") });
     return toAdd;
   }
@@ -2400,14 +2424,23 @@
       const useBtn = document.createElement("button");
       useBtn.textContent = "🖼️ Image";
       useBtn.addEventListener("click", async () => {
+        if (useBtn.disabled) return;
+        useBtn.disabled = true;
+        const oldLabel = useBtn.textContent;
+        useBtn.textContent = "⏳";
+        const warnings = [];
+        switchTab("generation");
+        $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        setUploadStatus("Préparation des planches de \"" + c.name + "\" (renvoi vers kie.ai si besoin)...");
         let toAdd;
         try {
-          setUploadStatus("Préparation des planches de \"" + c.name + "\"...");
-          toAdd = await buildCharRefs(c);
+          toAdd = await buildCharRefs(c, warnings);
         } catch (e) {
-          switchTab("generation");
           setUploadStatus("Erreur : " + e.message, "err");
           return;
+        } finally {
+          useBtn.disabled = false;
+          useBtn.textContent = oldLabel;
         }
         if (toAdd.length === 0) { setUploadStatus("Aucune planche utilisable pour \"" + c.name + "\".", "err"); return; }
         let added = 0;
@@ -2418,21 +2451,28 @@
           }
         });
         renderGallery();
-        setUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence.", "ok");
-        switchTab("generation");
-        $("generationSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        setUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence." + (warnings.length ? " ⚠ " + warnings.join(" ") : ""), warnings.length ? "err" : "ok");
       });
       const useVideoBtn = document.createElement("button");
       useVideoBtn.textContent = "🎬 Vidéo";
       useVideoBtn.addEventListener("click", async () => {
+        if (useVideoBtn.disabled) return;
+        useVideoBtn.disabled = true;
+        const oldLabel = useVideoBtn.textContent;
+        useVideoBtn.textContent = "⏳";
+        const warnings = [];
+        switchTab("video");
+        $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        setVideoUploadStatus("Préparation des planches de \"" + c.name + "\" (renvoi vers kie.ai si besoin)...");
         let toAdd;
         try {
-          setVideoUploadStatus("Préparation des planches de \"" + c.name + "\"...");
-          toAdd = await buildCharRefs(c);
+          toAdd = await buildCharRefs(c, warnings);
         } catch (e) {
-          switchTab("video");
           setVideoUploadStatus("Erreur : " + e.message, "err");
           return;
+        } finally {
+          useVideoBtn.disabled = false;
+          useVideoBtn.textContent = oldLabel;
         }
         if (toAdd.length === 0) { setVideoUploadStatus("Aucune planche utilisable pour \"" + c.name + "\".", "err"); return; }
         let added = 0;
@@ -2443,9 +2483,7 @@
           }
         });
         renderVideoGallery();
-        setVideoUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence.", "ok");
-        switchTab("video");
-        $("videoSection").scrollIntoView({ behavior: "smooth", block: "start" });
+        setVideoUploadStatus((added > 1 ? added + " planches" : "Planche") + " de \"" + c.name + "\" ajoutée" + (added > 1 ? "s" : "") + " comme référence." + (warnings.length ? " ⚠ " + warnings.join(" ") : ""), warnings.length ? "err" : "ok");
       });
       const delBtn = document.createElement("button");
       delBtn.textContent = "×";
